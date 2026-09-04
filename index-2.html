@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<!--
+=====================================================================
+AirStrategist: an airline business model simulator (teaching build, v3)
+Created by Prof Marina Efthymiou, September 2026, Dublin City University.
+Contact: marina.efthymiou@dcu.ie
+ORCID: https://orcid.org/0000-0001-8611-5973
+DOI: https://doi.org/10.5281/zenodo.22309151
+
+© 2026 Marina Efthymiou. All rights reserved. Licensed under CC BY-NC 4.0.
+https://creativecommons.org/licenses/by-nc/4.0/
+Cite as: Efthymiou, M. (2026). AirStrategist: an airline business model simulator. Zenodo. https://doi.org/10.5281/zenodo.22309151
+
+Single self-contained index.html. HTML + CSS + JS, no dependencies,
+no build step, no network calls except optional Google Fonts (falls
+back to system fonts offline). Host on GitHub Pages as-is.
+
+BUILT ON THE MNA1010 "Business Case University Challenge 24" DATASET.
+The embedded DATA object at the top of the script is extracted verbatim
+from that workbook: 5 airports (GVA base + LHR, CDG, AMS, ALC), 9
+aircraft with full economics, cabin configurations, per-airport landing
+& handling costs, block/flight times per sector per type, ANSP factors,
+quarterly F/J/Y demand (2019/2022/2023), competitor seats & average
+fares by cabin, ancillary services, and general costs. Items NOT in the
+workbook are modelled and marked ASSUMPTION in the code.
+
+WHY GENEVA: GVA is a genuine dual-model airport in reality — a Star
+Alliance network-carrier station with multi-cabin flying AND the largest
+base of a pan-European low-cost carrier outside the UK. In the dataset
+easyJet dominates economy on all four sectors while Swiss / BA / Air
+France / KLM hold the premium cabins, so both archetypes have a real
+market to win. Every demand, fare and cost number is from the workbook.
+
+GAME LENGTH: 8 quarters (two years). CONFIG.quarters.
+
+INSTRUCTOR NOTES — KEY FORMULAS (all levers live in CONFIG / MODELS /
+SHOCKS and the embedded DATA; edit those numbers to retune).
+
+1. Two models set cabin/network/pricing coherence:
+   LCC  — dense economy (Y / Y-dense), point-to-point, no alliance,
+          1 fleet family, fares below market, services CHARGED (ancillary).
+   FSNC — multi-cabin (J/Y default; F optional), hub-and-spoke, alliance,
+          up to 3 families, fares at/above market, premium services bundled.
+   The coherence engine penalises off-model cabin layouts, off-band
+   fares by cabin, wrong network/alliance, and fleet fragmentation.
+   Note: a First cabin on European short-haul is a deliberate trap —
+   F demand is tiny (a few hundred pax/qtr) so it rarely pays. That is
+   realistic (no European carrier flies F short-haul) and a good lesson.
+
+2. Demand per route+cabin per quarter:
+   marketPax = baseline2023 x seasonality x shockSeg x routeShock
+   Our share of that market =
+       (ourSeats x attractiveness) / (ourSeats x attractiveness + compSeats)
+       x hubFeed x allianceFeed x brand x lccPull,   capped at 1.
+   attractiveness = (competitorFare / ourFare) ^ elasticity,
+     elasticity by cabin F 0.6, J 0.9, Y 1.25 (ASSUMPTION).
+   competitorFare = mean of competitor average fares on the route+cabin,
+     x a per-quarter competitor index (0.94-1.06) x price-war shock.
+   brand = 1 - 0.35 x max(0,(75-coherence)/75)  ("stuck in the middle").
+   hubFeed: FSNC +16% / LCC +8% connecting demand on core routes (LHR,CDG);
+   allianceFeed: FSNC +12%/+5%, LCC +6%/+2% (premium cabins gain most).
+   lccPull: +10% economy demand for a point-to-point LCC priced below
+   market (direct distribution / price-shopper brand) — the LCC mirror
+   of network feed (ASSUMPTION).
+
+3. Capacity & spill: seats come from the chosen cabin CONFIG x freq x 2 x
+   13 weeks; demand above capacity spills (turned away, no revenue).
+   ticketRev = sum over cabins of pax_cab x fare_cab.
+   ancillary: LCC earns (rev-cost) on CHARGED services; FSNC pays for
+   bundled premium services (supports fares, adds cost).
+   Unit metrics reported: ASK, RPK, CASK, RASK, yield (per route & total).
+
+4. Cost build-up (real rates from the workbook unless noted):
+   fuel  = fuelburn x flightHours x departures x fuelPrice
+   env   = fuelburn x flightHours x departures x carbonRate(q)
+   maint = mxFH x FH x dep + mxBH x BH x dep + mxCycle x cycles + fixMx
+   crew  = (2 x cockpit + cabinCrew x cabin) x blockHours / 10  (ASSUMPTION scale)
+   airport = (landingUnitFee_base+dest) x MTOW x landings + handling(base+dest)
+   ANSP  = anspFactor x (distance/100) x departures   (ASSUMPTION)
+   lease = aircraftEq x monthlyLease x 3, aircraftEq = blockHrs/week /
+           (maxUtil x 7); insurance likewise per aircraft.
+   Network: overhead 1,000,000 + 250,000/aircraft; hub 1,100,000/qtr
+   (ASSUMPTION); alliance 700,000/qtr (ASSUMPTION).
+   Range failure (aircraft range < sector distance): route earns 0,
+   burns no fuel, but the lease is still paid.
+
+5. Fuel: starts at the workbook value 0.97/unit and follows a bounded
+   random walk (ASSUMPTION); environmental charge starts at 0.05 and
+   rises 0.010 per quarter.
+
+6. Coherence (0-100): 100 minus penalties for network mismatch,
+   alliance mismatch, extra fleet families, off-model cabin layout
+   (LCC with premium seats / FSNC all-economy), and off-band fares by
+   cabin. Below 75 the market cuts demand and inflates unit costs.
+
+7. Shocks (seeded from the MANDATORY scenario seed so a class can share
+   one scenario). 8-quarter arc: fuel spike (2 qtrs) starting Q3 or Q4;
+   recession (2 qtrs) starting Q5-7; a 40% chance of a public-health
+   demand collapse (2 qtrs); a French ATC strike / airspace closure
+   (1 qtr, hits CDG x0.6 and ALC x0.75, fuel x1.12); and a 55% chance of
+   a low-cost price war on LHR & ALC (2 qtrs). Each shows a banner and
+   model-specific board coaching, and the log grades the response.
+
+8. GRADE: score = 0.6 x financial + 0.4 x average coherence, where
+   financial = 50 + 30 x (cumulative profit / starting cash), clamped
+   0-100. A >= 88, B >= 76, C >= 62, D >= 48, else F. Insolvency
+   (cash below -12M) ends the game and caps the score at 45.
+   An "A" therefore needs BOTH near-perfect coherence AND roughly
+   30M of profit over two years.
+
+SCENARIO SEED (see also the instructor handbook). The seed is
+lower-cased and hashed (FNV-1a) into a Mulberry32 PRNG that fixes:
+shock timing, the fuel random walk, and the per-quarter competitor
+fare index. Same seed = identical scenario for every student, so
+results are comparable and a class can be debriefed against one story.
+Default 'mna1010': ATC strike Q2, fuel spike Q3-4, recession Q7-8 —
+one shock at a time, no pandemic; the recommended first-run seed.
+Other documented seeds: 'autumn2026' (geo Q2, fuel Q3-4, recession
+Q5-6, calm finish), 'dublin' (adds a price war Q5-6), 'exam' (adds a
+pandemic in Q7-8), 'spring2026' (pandemic in Q2-3: hard mode).
+
+CALIBRATION NOTE (verified over seeds mna1010 / autumn2026 / dublin /
+exam / spring2026): starting cash 30M is tuned so a well-run LCC and a
+well-run FSNC both earn an "A" and finish within ~5M of each other
+(~70-77M cash), a coherent-but-lazy carrier earns B/C, and an
+incoherent "stuck in the middle" carrier goes bankrupt within 5-6
+quarters. Pandemic seeds favour the LCC slightly, as in reality.
+Alicante is a hard, low-yield, seasonal, competitor-saturated route:
+recognising when NOT to over-serve it (especially in winter) is part
+of the lesson.
+
+EXPORTS: (a) CSV of every quarter, route, fare and unit metric;
+(b) a self-contained HTML report reproducing the simulator as it
+appeared — decisions, ledgers, shock banners, boardroom log, board
+review and glossary — which prints cleanly to PDF for submission.
+=====================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirStrategist: an airline business model simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E141B; --bg2:#121A23; --panel:#161F2A; --panel2:#1C2733; --line:#2B3846; --line2:#364554;
+  --text:#E8EEF4; --muted:#95A5B7; --dim:#6C7C8E;
+  --amber:#F2B441; --amber2:#FFD27A; --cyan:#4FD3E4; --cyan2:#9CEAF3;
+  --red:#F2736C; --green:#5FD49B;
+  --head:"Space Grotesk",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --prose:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:6px;
+}
+*{box-sizing:border-box}
+html{font-size:18px}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--prose);line-height:1.55;-webkit-font-smoothing:antialiased;
+  background-image:linear-gradient(rgba(79,211,228,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(79,211,228,.035) 1px,transparent 1px);
+  background-size:48px 48px;}
+h1,h2,h3{font-family:var(--head);margin:0;line-height:1.15;letter-spacing:-.01em}
+h1{font-size:clamp(2.2rem,5vw,3.6rem);font-weight:700}
+h2{font-size:1.55rem;font-weight:600}
+h3{font-size:1.15rem;font-weight:600}
+p{margin:0 0 .8em}
+button{font:inherit;cursor:pointer}
+input,select{font:inherit;color:var(--text)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1360px;margin:0 auto;padding:28px clamp(16px,3vw,40px) 80px}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.amber{color:var(--amber)} .cyan{color:var(--cyan)} .red{color:var(--red)} .green{color:var(--green)}
+a{color:var(--cyan)}
+:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+
+/* ---------- Instrument panel primitive ---------- */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px;position:relative}
+.panel::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--line2);border-radius:var(--r) var(--r) 0 0}
+.panel.amber::before{background:var(--amber)} .panel.cyan::before{background:var(--cyan)}
+.plabel{font-family:var(--head);font-size:.95rem;color:var(--muted);margin-bottom:10px;letter-spacing:.01em}
+.readout{font-family:var(--mono);font-size:2.1rem;font-weight:500;line-height:1.05;font-variant-numeric:tabular-nums}
+.readout.sm{font-size:1.45rem}
+.sub{font-size:.95rem;color:var(--muted);margin-top:6px}
+
+/* ---------- Start screen ---------- */
+.hero{padding:40px 0 30px;display:grid;gap:14px}
+.hero .eyebrow{font-family:var(--mono);color:var(--cyan);font-size:1rem}
+.hero p{max-width:62ch;font-size:1.15rem;color:var(--muted)}
+.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:20px}
+.mcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:26px;display:flex;flex-direction:column;gap:14px;cursor:pointer;text-align:left;color:var(--text);transition:border-color .15s}
+.mcard:hover{border-color:var(--line2)}
+.mcard.selected{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber) inset}
+.mcard .tag{font-family:var(--mono);font-size:1rem;color:var(--cyan)}
+.mcard h3{font-size:1.45rem}
+.mcard .why{color:var(--muted);font-size:1rem}
+.spec{display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:1rem;border-top:1px solid var(--line);padding-top:12px}
+.spec span:nth-child(odd){color:var(--muted)}
+.spec span:nth-child(even){font-family:var(--mono);text-align:right}
+.fits{font-size:.95rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;line-height:1.5}
+.fits b{color:var(--text);font-weight:500}
+.launch{display:flex;flex-wrap:wrap;gap:18px;align-items:end;margin-top:28px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:.95rem;color:var(--muted)}
+.tin{background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:1.05rem;min-width:220px}
+.tin.mono{font-family:var(--mono)}
+.btn{background:var(--amber);color:#1A1200;border:none;border-radius:4px;padding:14px 26px;font-family:var(--head);font-weight:600;font-size:1.15rem;transition:background .15s}
+.btn:hover{background:var(--amber2)}
+.btn:disabled{background:var(--line);color:var(--dim);cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--cyan);border:1px solid var(--line2)}
+.btn.ghost:hover{border-color:var(--cyan)}
+
+/* ---------- Top status strip ---------- */
+.strip{display:grid;grid-template-columns:1.6fr repeat(4,1fr) 1.2fr;gap:14px;align-items:stretch}
+.strip .panel{padding:16px 20px}
+.strip .readout{font-size:1.85rem}
+.carrier .name{font-family:var(--head);font-size:1.5rem;font-weight:600}
+.carrier .model{font-family:var(--mono);color:var(--cyan);font-size:1rem;margin-top:2px}
+.gauge{display:flex;align-items:center;gap:14px}
+.gauge svg{width:118px;height:70px;flex:none}
+.gauge .gv{font-family:var(--mono);font-size:2.1rem;line-height:1}
+.gauge .gl{font-size:.9rem;color:var(--muted)}
+
+/* ---------- Shock banner ---------- */
+.shock{margin-top:18px;border:1px solid var(--red);background:rgba(242,115,108,.08);border-radius:var(--r);padding:20px 24px;display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start}
+.shock .icon{width:46px;height:46px;border-radius:50%;border:2px solid var(--red);display:grid;place-items:center;font-family:var(--mono);font-size:1.4rem;color:var(--red)}
+.shock h3{color:var(--red);font-size:1.3rem}
+.shock p{margin:6px 0 0;font-size:1.05rem}
+.shock .fx{font-family:var(--mono);font-size:.95rem;color:var(--amber2);margin-top:8px}
+.shock.easing{border-color:var(--amber);background:rgba(242,180,65,.07)}
+.shock.easing .icon,.shock.easing h3{color:var(--amber);border-color:var(--amber)}
+
+/* ---------- Sections ---------- */
+.section{margin-top:34px}
+.section-h{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.section-h p{color:var(--muted);margin:0;font-size:1rem}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+
+/* toggles */
+.seg{display:flex;border:1px solid var(--line2);border-radius:4px;overflow:hidden;margin-top:10px}
+.seg button{flex:1;background:transparent;color:var(--muted);border:none;padding:12px 10px;font-family:var(--head);font-weight:600;font-size:1.05rem}
+.seg button.on{background:var(--cyan);color:#062229}
+.seg button + button{border-left:1px solid var(--line2)}
+.note{font-size:.95rem;color:var(--muted);margin-top:10px;line-height:1.5}
+.note b{color:var(--text);font-weight:500}
+.viol{list-style:none;padding:0;margin:12px 0 0;display:grid;gap:8px}
+.viol li{font-size:.98rem;padding-left:18px;position:relative;line-height:1.4}
+.viol li::before{content:"";position:absolute;left:0;top:.55em;width:8px;height:8px;border-radius:50%;background:var(--red)}
+.viol li.ok::before{background:var(--green)}
+.viol li .pts{font-family:var(--mono);color:var(--muted);margin-left:6px}
+
+/* ---------- Route strips ---------- */
+.route{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:var(--r);padding:20px 24px;display:grid;grid-template-columns:1.15fr 1.4fr 1.5fr;gap:24px;margin-bottom:16px}
+.route.profit{border-left-color:var(--green)} .route.loss{border-left-color:var(--red)} .route.warn{border-left-color:var(--amber)}
+.rhead .pair{font-family:var(--head);font-size:1.8rem;font-weight:700;letter-spacing:.01em}
+.rhead .pair span{color:var(--muted);font-weight:500;font-size:1.2rem;margin:0 8px}
+.rhead .city{color:var(--muted);font-size:1rem;margin-top:2px}
+.rmeta{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:.95rem;margin-top:12px}
+.rmeta span:nth-child(odd){color:var(--muted)}
+.rmeta span:nth-child(even){font-family:var(--mono)}
+.mixbar{height:8px;border-radius:4px;background:var(--cyan);overflow:hidden;margin-top:10px;display:flex}
+.mixbar i{display:block;height:100%;background:var(--amber)}
+.mixlbl{display:flex;justify-content:space-between;font-size:.9rem;margin-top:5px}
+.mixlbl .b{color:var(--amber)} .mixlbl .l{color:var(--cyan)}
+.controls{display:grid;gap:14px;align-content:start}
+.ctl label{display:flex;justify-content:space-between;font-size:.95rem;color:var(--muted);margin-bottom:6px}
+.ctl label output{font-family:var(--mono);color:var(--text);font-size:1.05rem}
+.ctl select,.ctl input[type=number]{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:1.05rem}
+.ctl .row{display:grid;grid-template-columns:1fr 110px;gap:10px;align-items:center}
+.ctl input[type=number]{font-family:var(--mono)}
+input[type=range]{width:100%;accent-color:var(--amber);height:28px}
+.rwarn{font-size:.95rem;color:var(--amber);line-height:1.45}
+.rwarn.bad{color:var(--red)}
+.rlast{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 18px;align-content:start}
+.rlast .k{font-size:.9rem;color:var(--muted)}
+.rlast .v{font-family:var(--mono);font-size:1.5rem;line-height:1.1;margin-top:2px}
+.rlast .v.sm{font-size:1.15rem}
+.rlast .empty{grid-column:1/-1;color:var(--dim);font-size:1rem;align-self:center}
+
+.runbar{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;margin-top:22px;padding:22px 24px;background:var(--panel2);border:1px solid var(--line);border-radius:var(--r)}
+.runbar .sum{font-size:1.05rem;color:var(--muted)}
+.runbar .sum b{font-family:var(--mono);color:var(--text);font-weight:500}
+.btn.big{font-size:1.3rem;padding:16px 34px}
+
+/* ---------- Ledger ---------- */
+.ledgerwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+table.ledger{border-collapse:collapse;width:100%;min-width:760px;font-size:1rem}
+.ledger th,.ledger td{padding:10px 16px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+.ledger th{font-family:var(--head);font-weight:600;color:var(--muted);font-size:1rem}
+.ledger td{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.ledger td:first-child,.ledger th:first-child{text-align:left;font-family:var(--prose);color:var(--muted);position:sticky;left:0;background:var(--panel)}
+.ledger tr.head td{font-family:var(--prose);color:var(--text)}
+.ledger tr.total td{font-weight:600;color:var(--text);border-top:1px solid var(--line2)}
+.ledger tr.total td:first-child{color:var(--text)}
+.ledger tr.group td:first-child{color:var(--cyan);font-family:var(--head);padding-top:16px}
+.ledger td.neg{color:var(--red)} .ledger td.pos{color:var(--green)}
+.ledger td.cost{color:var(--muted)}
+.ledger tr.total td.fail{color:var(--red)}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:16px}
+.summary .panel{padding:16px 20px}
+
+/* ---------- Boardroom log ---------- */
+.log{display:grid;gap:12px}
+.entry{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--line2);border-radius:var(--r);padding:16px 20px}
+.entry.good{border-left-color:var(--green)} .entry.warn{border-left-color:var(--amber)} .entry.bad{border-left-color:var(--red)} .entry.shock{border-left-color:var(--red);background:rgba(242,115,108,.06)} .entry.info{border-left-color:var(--cyan)}
+.entry h4{font-family:var(--head);margin:0 0 4px;font-size:1.1rem;font-weight:600}
+.entry p{margin:0;font-size:1.02rem;line-height:1.5}
+.entry .who{font-family:var(--mono);font-size:.85rem;color:var(--muted);margin-bottom:4px}
+
+/* ---------- Chart ---------- */
+.chart svg{width:100%;height:220px;display:block}
+.chart .axis{stroke:var(--line2);stroke-width:1}
+.chart text{fill:var(--muted);font-family:var(--mono);font-size:13px}
+
+/* ---------- Board review ---------- */
+.review{display:grid;gap:22px}
+.grade{display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:center}
+.grade .g{font-family:var(--head);font-size:6rem;font-weight:700;line-height:1;color:var(--amber)}
+.grade h2{font-size:1.9rem}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+.review .entry p{font-size:1.05rem}
+
+/* ---------- Responsive ---------- */
+@media (max-width:1100px){
+  .strip{grid-template-columns:repeat(3,1fr)}
+  .strip .carrier{grid-column:1/-1}
+  .route{grid-template-columns:1fr 1fr}
+  .route .rlast{grid-column:1/-1;grid-template-columns:repeat(4,1fr)}
+}
+@media (max-width:760px){
+  html{font-size:17px}
+  .strip{grid-template-columns:1fr 1fr}
+  .grid3{grid-template-columns:1fr}
+  .route{grid-template-columns:1fr;gap:18px}
+  .route .rlast{grid-template-columns:repeat(2,1fr)}
+  .grade{grid-template-columns:1fr}
+  .grade .g{font-size:4.5rem}
+  .shock{grid-template-columns:1fr}
+  .readout{font-size:1.7rem}
+}
+
+/* ---- new controls: O-D serve, config, per-cabin fares, seed ---- */
+.req{color:var(--amber);font-family:var(--mono);font-size:.85em}
+.seedhint{color:var(--amber);font-size:.95rem;margin-top:10px;min-height:1.2em;opacity:0}
+.seedhint.show{opacity:1}
+.pairline{display:flex;align-items:center;gap:16px}
+.serve{display:inline-flex;align-items:center;gap:8px;font-size:.95rem;color:var(--muted);cursor:pointer;user-select:none}
+.serve input{width:20px;height:20px;accent-color:var(--amber);cursor:pointer}
+.route.off{opacity:.5}
+.route.off .controls,.route.off .rlast{filter:grayscale(.4)}
+.ctl select{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:1rem}
+.fares{border-top:1px solid var(--line);padding-top:12px;display:grid;gap:8px}
+.fareshead{font-size:.9rem;color:var(--muted)}
+.farerow{display:grid;grid-template-columns:1fr 96px auto;gap:10px;align-items:center}
+.fclab{font-size:.95rem}
+.fclab em{color:var(--muted);font-style:normal;font-size:.85rem;margin-left:4px}
+.fc-F{color:var(--amber2)} .fc-J{color:var(--cyan2)} .fc-Y{color:var(--text)}
+.farerow input{background:var(--bg2);border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-family:var(--mono);font-size:1rem;width:100%}
+.fcmkt{font-family:var(--mono);font-size:.85rem;color:var(--dim);white-space:nowrap}
+.route{grid-template-columns:1.05fr 1.5fr 1.45fr}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---- instructional: model briefing, glossary, term tooltips, credit ---- */
+details.brief{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:0;margin:18px 0}
+details.brief>summary{cursor:pointer;list-style:none;padding:18px 24px;font-family:var(--head);font-weight:600;font-size:1.2rem;display:flex;justify-content:space-between;align-items:center;gap:12px}
+details.brief>summary::-webkit-details-marker{display:none}
+details.brief>summary .hint{font-family:var(--prose);font-weight:400;color:var(--muted);font-size:.95rem}
+details.brief>summary::after{content:"+";font-family:var(--mono);color:var(--cyan);font-size:1.4rem}
+details.brief[open]>summary::after{content:"\2212"}
+details.brief .inner{padding:0 24px 24px;display:grid;gap:16px}
+details.brief h3{font-size:1.15rem;margin:8px 0 0}
+details.brief p{margin:0;color:var(--text);max-width:80ch;font-size:1rem}
+details.brief p.muted{color:var(--muted)}
+table.cmp{width:100%;border-collapse:collapse;font-size:.95rem;margin-top:6px}
+table.cmp th,table.cmp td{text-align:left;vertical-align:top;padding:10px 12px;border-top:1px solid var(--line)}
+table.cmp th{font-family:var(--head);color:var(--cyan);font-weight:600;background:var(--panel2)}
+table.cmp td:first-child{font-family:var(--head);font-weight:600;color:var(--amber);white-space:nowrap;width:16%}
+table.cmp td{color:var(--text);line-height:1.45}
+.gloss{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px 22px;margin:0}
+.gloss div{padding:10px 0;border-top:1px solid var(--line)}
+.gloss dt{font-family:var(--head);font-weight:600;color:var(--amber);font-size:1rem}
+.gloss dd{margin:4px 0 0;color:var(--muted);font-size:.93rem;line-height:1.45}
+.gsearch{width:100%;max-width:360px;margin:0 0 6px}
+.term{border-bottom:1px dotted var(--cyan);cursor:help;text-decoration:none;color:inherit}
+.term:hover{color:var(--cyan2)}
+#tip{position:fixed;z-index:50;max-width:340px;background:#0B1118;border:1px solid var(--cyan);border-radius:6px;padding:12px 14px;font-size:.92rem;line-height:1.45;color:var(--text);box-shadow:0 8px 30px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .12s}
+#tip.show{opacity:1}
+#tip b{color:var(--cyan);display:block;margin-bottom:4px;font-family:var(--head)}
+.mbrief{margin-top:18px}
+.mbrief .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin-top:10px}
+.mbrief .grid2 div{font-size:.95rem;color:var(--muted);padding:6px 0;border-top:1px solid var(--line)}
+.mbrief .grid2 div b{color:var(--text);display:block;font-family:var(--head);font-weight:600}
+.credit{margin:40px 0 20px;padding-top:16px;border-top:1px solid var(--line);color:var(--dim);font-size:.9rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.credit b{color:var(--muted);font-weight:500}
+.seednote{color:var(--muted);font-size:.93rem;max-width:74ch;margin-top:10px}
+.dlrow{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:12px}
+.metrics .panel{padding:14px 16px}
+.metrics .k{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-family:var(--mono)}
+.metrics .v{font-family:var(--mono);font-size:1.3rem;font-weight:600;margin-top:4px}
+@media(max-width:760px){.mbrief .grid2{grid-template-columns:1fr} table.cmp td:first-child{width:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ================= START ================= -->
+<section id="start">
+  <div class="hero">
+    <div class="eyebrow mono">MNA1010 · Airline business models and strategy</div>
+    <h1>AirStrategist</h1>
+    <p>You are the new CEO of a start-up carrier based at <b>Geneva (GVA)</b> — an airport where a network carrier and Europe's largest low-cost base both make money, by doing completely different things. Choose a <span class="term" data-term="Business model">business model</span>, pick which routes to fly, set the aircraft, cabin layout, fares by cabin and frequency, and run it for <b>eight quarters (two years)</b>. Every later decision either reinforces the model you chose or quietly contradicts it. The board is watching for fit, not for any single clever move. Demand, competitor fares, aircraft and airport costs are drawn from the real MNA1010 dataset.</p>
+  </div>
+
+  <h2>1 · Understand the two models first</h2>
+  <p class="muted" style="max-width:74ch">Read this before you choose. The simulator rewards a strategy that hangs together, not a lucky quarter. Dotted-underlined terms anywhere in the simulator show a definition when you hover or tap them; the full glossary is at the bottom of the page.</p>
+  <div id="brief"></div>
+
+  <h2 style="margin-top:34px">2 · Choose your business model</h2>
+  <div class="models" id="modelCards"></div>
+
+  <div class="launch">
+    <div class="field">
+      <label for="carrierName">Carrier name (optional)</label>
+      <input id="carrierName" class="tin" type="text" maxlength="28" placeholder="e.g. Albion Air">
+    </div>
+    <div class="field">
+      <label for="seed"><span class="term" data-term="Scenario seed">Scenario seed</span> <span class="req">(required)</span></label>
+      <input id="seed" class="tin mono" type="text" maxlength="16" value="mna1010" placeholder="type any word or number">
+    </div>
+    <button id="launchBtn" class="btn" disabled>Launch carrier</button>
+  </div>
+  <div id="seedHint" class="seedhint"></div>
+  <p class="seednote"><b>About the seed.</b> The seed fixes everything random in the two years ahead — when shocks land, how fuel drifts, how competitors move their fares. It is not case-sensitive. Everyone using the same seed faces an identical scenario, so use the seed your lecturer gives you: it makes your result comparable with every other group and lets the class be debriefed against one story. Change the seed only if you are told to, or if you are practising on your own. You will not be told what is coming; a real CEO isn't either.</p>
+  <p class="muted" style="margin-top:22px;max-width:74ch">Start position: €30M cash, four possible routes from Geneva — <b>London Heathrow, Paris (CDG), Amsterdam, Alicante</b> — nine aircraft types on lease, three cabins (First / Business / Economy). Fuel and environmental charges drift and rise. Something will go wrong.</p>
+
+  <h2 style="margin-top:40px">Glossary of terms</h2>
+  <details class="brief"><summary>Definitions used in the simulator <span class="hint">airline economics, strategy and the metrics on screen</span></summary><div class="inner"><input class="tin gsearch" id="glossSearch" type="search" placeholder="Filter terms…"><dl class="gloss" id="glossary"></dl></div></details>
+  <div class="credit"><span>AirStrategist · an airline business model simulator</span><span><b>© 2026 Prof Marina Efthymiou · CC BY-NC 4.0 · marina.efthymiou@dcu.ie</b></span></div>
+</section>
+
+<!-- ================= GAME ================= -->
+<section id="game" class="hidden">
+  <div class="strip">
+    <div class="panel carrier"><div class="name" id="hName">—</div><div class="model" id="hModel">—</div></div>
+    <div class="panel"><div class="plabel">Quarter</div><div class="readout" id="hQuarter">Q1</div><div class="sub" id="hQuarterSub">of 8</div></div>
+    <div class="panel amber"><div class="plabel">Cash</div><div class="readout" id="hCash">€30.0M</div><div class="sub" id="hCashSub">starting position</div></div>
+    <div class="panel"><div class="plabel">Last quarter profit</div><div class="readout" id="hProfit">—</div><div class="sub" id="hProfitSub">no quarter run yet</div></div>
+    <div class="panel"><div class="plabel">Jet fuel</div><div class="readout" id="hFuel">€0.97</div><div class="sub" id="hFuelSub">per unit</div></div>
+    <div class="panel cyan"><div class="plabel"><span class="term" data-term="Strategic coherence">Strategic coherence</span></div>
+      <div class="gauge">
+        <svg viewBox="0 0 120 70" aria-hidden="true">
+          <path d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="#2B3846" stroke-width="10" stroke-linecap="round"/>
+          <path id="gArc" d="M10 62 A50 50 0 0 1 110 62" fill="none" stroke="#4FD3E4" stroke-width="10" stroke-linecap="round" stroke-dasharray="157" stroke-dashoffset="0"/>
+          <line id="gNeedle" x1="60" y1="62" x2="60" y2="18" stroke="#E8EEF4" stroke-width="3" stroke-linecap="round" transform="rotate(0 60 62)"/>
+          <circle cx="60" cy="62" r="5" fill="#E8EEF4"/>
+        </svg>
+        <div><div class="gv" id="gVal">100</div><div class="gl" id="gLbl">on model</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="shockBanner" class="shock hidden" role="alert"></div>
+
+  <div class="section">
+    <div class="section-h"><h2>Network strategy</h2><p>These apply to the whole airline. Change them any quarter.</p></div>
+    <div class="panel mbrief" id="mbrief"></div>
+    <div class="grid3" style="margin-top:18px">
+      <div class="panel"><div class="plabel">Network structure</div>
+        <div class="seg" role="group" aria-label="Network structure"><button id="netP2P" type="button"><span class="term" data-term="Point-to-point">Point-to-point</span></button><button id="netHub" type="button"><span class="term" data-term="Hub-and-spoke">Hub-and-spoke</span></button></div>
+        <div class="note" id="netNote"></div></div>
+      <div class="panel"><div class="plabel"><span class="term" data-term="Alliance">Alliance</span> membership</div>
+        <div class="seg" role="group" aria-label="Alliance"><button id="allOff" type="button">Independent</button><button id="allOn" type="button">Join alliance</button></div>
+        <div class="note" id="allNote"></div></div>
+      <div class="panel"><div class="plabel"><span class="term" data-term="Fleet family / commonality">Fleet</span></div><div class="readout sm" id="fleetTypes">—</div><div class="note" id="fleetNote"></div></div>
+    </div>
+    <div class="panel" style="margin-top:18px"><div class="plabel">Coherence check — what the board sees right now</div><ul class="viol" id="violList"></ul></div>
+  </div>
+
+  <div class="section">
+    <div class="section-h"><h2>Route decisions</h2><p>Tick which routes to serve, then set aircraft, <span class="term" data-term="Cabin configuration">cabin layout</span>, fares by cabin, and weekly round trips. Market fares are what competitors charge today.</p></div>
+    <div id="routes"></div>
+    <div class="runbar"><div class="sum" id="runSummary"></div><button id="runBtn" class="btn big">Run quarter</button></div>
+  </div>
+
+  <div class="section hidden" id="results">
+    <div class="section-h"><h2 id="resTitle">Quarter results</h2><p id="resSub"></p></div>
+    <div class="summary" id="resSummary"></div>
+    <div class="metrics" id="resMetrics"></div>
+    <div class="ledgerwrap"><table class="ledger" id="ledger"></table></div>
+  </div>
+
+  <div class="section hidden" id="logSection"><div class="section-h"><h2>Boardroom log</h2><p>Why it happened, in the board's words.</p></div><div class="log" id="log"></div></div>
+
+  <div class="section hidden" id="chartSection">
+    <div class="section-h"><h2>Cash and coherence over time</h2><p>Amber line: cash. Dashed cyan: coherence when each quarter was run. Shaded columns: shock quarters.</p></div>
+    <div class="panel chart" id="chart"></div>
+    <div class="dlrow"><button id="reportBtn" class="btn ghost">Export full report (HTML · print to PDF)</button><button id="downloadBtn" class="btn ghost">Export data (CSV)</button></div>
+  </div>
+  <h2 style="margin-top:40px">Glossary of terms</h2>
+  <details class="brief"><summary>Definitions used in the simulator <span class="hint">airline economics, strategy and the metrics on screen</span></summary><div class="inner"><dl class="gloss" id="glossary2"></dl></div></details>
+  <div class="credit"><span>AirStrategist · an airline business model simulator</span><span><b>© 2026 Prof Marina Efthymiou · CC BY-NC 4.0 · marina.efthymiou@dcu.ie</b></span></div>
+</section>
+
+<!-- ================= BOARD REVIEW ================= -->
+<section id="end" class="hidden">
+  <div class="hero"><div class="eyebrow mono" id="endEyebrow">Year 2 · Board review</div><h1>Board review</h1></div>
+  <div class="review" id="review"></div>
+  <div class="section" style="display:flex;gap:16px;flex-wrap:wrap">
+    <button class="btn" id="reportBtn2">Export full report (HTML · print to PDF)</button>
+    <button class="btn ghost" id="downloadBtn2">Export data (CSV)</button>
+    <button class="btn ghost" id="againBtn">Run another carrier</button>
+    <button class="btn ghost" id="backBtn">Look at the final ledger</button>
+  </div>
+  <p class="muted" style="max-width:74ch">The full report reproduces everything you saw — every quarter's decisions, ledger, shock banner, boardroom commentary and this review — as a single file you can open in any browser and print to PDF for submission.</p>
+  <div class="credit"><span>AirStrategist · an airline business model simulator</span><span><b>© 2026 Prof Marina Efthymiou · CC BY-NC 4.0 · marina.efthymiou@dcu.ie</b></span></div>
+</section>
+
+</div>
+<div id="tip" role="tooltip"></div>
+<script>
+'use strict';
+const DATA = {"aircraft":{"7M9":{"name":"Boeing 737 MAX 9","family":"Boeing 737 Family","speed":855,"fuelburn":2598,"range":6570,"lease":315000,"fixMx":50000,"mxFH":608,"mxBH":299,"mxCycle":236,"crewCockpit":4500,"crewCabin":2000,"insurance":18000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":88},"752":{"name":"Boeing 757-200 ","family":"Boeing 757 Family","speed":852,"fuelburn":2940,"range":6295,"lease":175000,"fixMx":50000,"mxFH":814,"mxBH":452,"mxCycle":214,"crewCockpit":4500,"crewCabin":2000,"insurance":35000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":116},"221":{"name":"Airbus A220-100","family":"Airbus 220 family","speed":880,"fuelburn":2004,"range":5740,"lease":240000,"fixMx":50000,"mxFH":580,"mxBH":280,"mxCycle":181,"crewCockpit":4500,"crewCabin":2000,"insurance":40000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":70},"32N":{"name":"Airbus A320 Neo","family":"Airbus 320 Family","speed":840,"fuelburn":2346,"range":6850,"lease":325000,"fixMx":50000,"mxFH":574,"mxBH":279,"mxCycle":180,"crewCockpit":4500,"crewCabin":2000,"insurance":110000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":79},"738":{"name":"Boeing 737-800 ","family":"Boeing 737 Family","speed":823,"fuelburn":2526,"range":5425,"lease":340000,"fixMx":50000,"mxFH":574,"mxBH":291,"mxCycle":206,"crewCockpit":4500,"crewCabin":2000,"insurance":62000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":78},"E70":{"name":"Embraer 170","family":"Embreaer E jets","speed":811,"fuelburn":1462,"range":2833,"lease":105000,"fixMx":50000,"mxFH":461,"mxBH":259,"mxCycle":160,"crewCockpit":4500,"crewCabin":2000,"insurance":12000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":39},"321":{"name":"Airbus A321 ","family":"Airbus 320 Family","speed":837,"fuelburn":2580,"range":5000,"lease":350000,"fixMx":50000,"mxFH":610,"mxBH":307,"mxCycle":192,"crewCockpit":4500,"crewCabin":2000,"insurance":72500,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":93},"320":{"name":"Airbus A320 ","family":"Airbus 320 Family","speed":837,"fuelburn":2508,"range":5700,"lease":300000,"fixMx":50000,"mxFH":594,"mxBH":289,"mxCycle":185,"crewCockpit":4500,"crewCabin":2000,"insurance":62000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":74},"290":{"name":"Embraer 190 E2","family":"Embreaer E jets","speed":837,"fuelburn":1500,"range":3852,"lease":220000,"fixMx":50000,"mxFH":474,"mxBH":264,"mxCycle":172,"crewCockpit":4500,"crewCabin":2000,"insurance":30000,"maxUtil":15.0,"minTAT":0.4166666666666667,"mtow":56}},"config":{"221":{"J / Y":{"crew":3,"seats":{"J":16,"Y":99}},"F / J / Y":{"crew":3,"seats":{"J":8,"Y":100,"F":4}},"Y dense":{"crew":3,"seats":{"Y":135}},"F / Y":{"crew":3,"seats":{"Y":106,"F":10}},"Y":{"crew":3,"seats":{"Y":124}}},"290":{"Y":{"crew":2,"seats":{"Y":100}},"F / Y":{"crew":2,"seats":{"Y":88,"F":9}},"F / J / Y":{"crew":3,"seats":{"Y":84,"F":3,"J":9}},"J / Y":{"crew":2,"seats":{"Y":88,"J":9}},"Y dense":{"crew":3,"seats":{"Y":114}}},"320":{"F / J / Y":{"crew":5,"seats":{"F":8,"Y":108,"J":16}},"F / Y":{"crew":4,"seats":{"F":10,"Y":132}},"J / Y":{"crew":4,"seats":{"Y":132,"J":14}},"Y":{"crew":4,"seats":{"Y":164}},"Y dense":{"crew":4,"seats":{"Y":180}}},"321":{"F / J / Y":{"crew":6,"seats":{"J":12,"F":4,"Y":154}},"Y":{"crew":4,"seats":{"Y":200}},"Y dense":{"crew":5,"seats":{"Y":220}},"J / Y":{"crew":5,"seats":{"J":16,"Y":169}},"F / Y":{"crew":5,"seats":{"Y":154,"F":16}}},"32N":{"F / J / Y":{"crew":5,"seats":{"Y":108,"J":16,"F":8}},"Y":{"crew":4,"seats":{"Y":164}},"F / Y":{"crew":4,"seats":{"F":10,"Y":132}},"J / Y":{"crew":4,"seats":{"J":14,"Y":132}},"Y dense":{"crew":4,"seats":{"Y":180}}},"738":{"F / J / Y":{"crew":5,"seats":{"Y":108,"F":8,"J":16}},"F / Y":{"crew":4,"seats":{"F":10,"Y":132}},"J / Y":{"crew":4,"seats":{"Y":132,"J":14}},"Y":{"crew":4,"seats":{"Y":164}},"Y dense":{"crew":4,"seats":{"Y":189}}},"752":{"F / J / Y":{"crew":6,"seats":{"F":4,"J":12,"Y":156}},"F / Y":{"crew":7,"seats":{"Y":160,"F":16}},"J / Y":{"crew":6,"seats":{"Y":178,"J":16}},"Y dense":{"crew":5,"seats":{"Y":220}},"Y":{"crew":5,"seats":{"Y":200}}},"7M9":{"F / Y":{"crew":5,"seats":{"F":14,"Y":160}},"F / J / Y":{"crew":6,"seats":{"Y":150,"F":6,"J":12}},"J / Y":{"crew":5,"seats":{"Y":164,"J":18}},"Y":{"crew":4,"seats":{"Y":200}},"Y dense":{"crew":5,"seats":{"Y":220}}},"E70":{"J / Y":{"crew":3,"seats":{"J":6,"Y":60}},"F / J / Y":{"crew":4,"seats":{"J":6,"Y":54,"F":3}},"Y dense":{"crew":2,"seats":{"Y":78}},"Y":{"crew":2,"seats":{"Y":72}},"F / Y":{"crew":3,"seats":{"Y":60,"F":6}}}},"airportCost":{"ALC":{"221":{"landing":8,"handling":575},"290":{"landing":8,"handling":500},"320":{"landing":8,"handling":650},"321":{"landing":8,"handling":650},"32N":{"landing":8,"handling":650},"738":{"landing":8,"handling":650},"752":{"landing":8,"handling":650},"7M9":{"landing":8,"handling":650},"E70":{"landing":8,"handling":400}},"AMS":{"221":{"landing":10,"handling":800},"290":{"landing":10,"handling":700},"320":{"landing":10,"handling":1000},"321":{"landing":10,"handling":1000},"32N":{"landing":10,"handling":1000},"738":{"landing":10,"handling":1000},"752":{"landing":10,"handling":1000},"7M9":{"landing":10,"handling":1000},"E70":{"landing":10,"handling":600}},"CDG":{"221":{"landing":15,"handling":1000},"290":{"landing":15,"handling":900},"320":{"landing":15,"handling":1100},"321":{"landing":15,"handling":1100},"32N":{"landing":15,"handling":1100},"738":{"landing":15,"handling":1100},"752":{"landing":15,"handling":1100},"7M9":{"landing":15,"handling":1100},"E70":{"landing":15,"handling":825}},"GVA":{"221":{"landing":12,"handling":1000},"290":{"landing":12,"handling":800},"320":{"landing":12,"handling":1150},"321":{"landing":12,"handling":1150},"32N":{"landing":12,"handling":1150},"738":{"landing":12,"handling":1150},"752":{"landing":12,"handling":1150},"7M9":{"landing":12,"handling":1150},"E70":{"landing":12,"handling":725}},"LHR":{"221":{"landing":25,"handling":1000},"290":{"landing":25,"handling":900},"320":{"landing":25,"handling":2500},"321":{"landing":25,"handling":2000},"32N":{"landing":25,"handling":1500},"738":{"landing":25,"handling":2500},"752":{"landing":25,"handling":3500},"7M9":{"landing":25,"handling":1500},"E70":{"landing":25,"handling":1400}}},"airports":{"ALC":{"name":"Alicante Airport","city":"Alicante","cityCode":"ALC","country":"Spain"},"AMS":{"name":"Schiphol","city":"Amsterdam ","cityCode":"AMS","country":"Netherlands"},"GVA":{"name":"Geneva International Airport","city":"Geneva","cityCode":"GVA","country":"Switzerland"},"LHR":{"name":"Heathrow","city":"London","cityCode":"LON","country":"United Kingdom"},"CDG":{"name":"Charles De Gaulle","city":"Paris","cityCode":"PAR","country":"France"}},"routes":{"ALCAMS":{"dist":1685,"ansp":5.5,"times":{"221":{"fh":2.15,"bh":2.5666666666666664},"290":{"fh":2.25,"bh":2.6666666666666665},"320":{"fh":2.25,"bh":2.6666666666666665},"321":{"fh":2.25,"bh":2.6666666666666665},"32N":{"fh":2.25,"bh":2.6666666666666665},"738":{"fh":2.283333333333333,"bh":2.7},"752":{"fh":2.216666666666667,"bh":2.6333333333333333},"7M9":{"fh":2.216666666666667,"bh":2.6333333333333333},"E70":{"fh":2.3166666666666664,"bh":2.7333333333333334}}},"ALCCDG":{"dist":1272,"ansp":5.5,"times":{"221":{"fh":1.6833333333333333,"bh":2.1},"290":{"fh":1.7666666666666666,"bh":2.183333333333333},"320":{"fh":1.7666666666666666,"bh":2.183333333333333},"321":{"fh":1.7666666666666666,"bh":2.183333333333333},"32N":{"fh":1.75,"bh":2.1666666666666665},"738":{"fh":1.7833333333333332,"bh":2.2},"752":{"fh":1.7333333333333334,"bh":2.15},"7M9":{"fh":1.7333333333333334,"bh":2.15},"E70":{"fh":1.8166666666666667,"bh":2.2333333333333334}}},"ALCGVA":{"dist":1086,"ansp":5.5,"times":{"221":{"fh":1.4833333333333334,"bh":1.8166666666666667},"290":{"fh":1.5333333333333332,"bh":1.8666666666666667},"320":{"fh":1.5333333333333332,"bh":1.8666666666666667},"321":{"fh":1.5333333333333332,"bh":1.8666666666666667},"32N":{"fh":1.5333333333333332,"bh":1.8666666666666667},"738":{"fh":1.5666666666666667,"bh":1.9},"752":{"fh":1.5166666666666666,"bh":1.85},"7M9":{"fh":1.5166666666666666,"bh":1.85},"E70":{"fh":1.5833333333333335,"bh":1.9166666666666665}}},"ALCLHR":{"dist":1539,"ansp":5.5,"times":{"221":{"fh":1.9833333333333334,"bh":2.65},"290":{"fh":2.0833333333333335,"bh":2.75},"320":{"fh":2.0833333333333335,"bh":2.75},"321":{"fh":2.0833333333333335,"bh":2.75},"32N":{"fh":2.066666666666667,"bh":2.7333333333333334},"738":{"fh":2.1166666666666667,"bh":2.783333333333333},"752":{"fh":2.05,"bh":2.716666666666667},"7M9":{"fh":2.05,"bh":2.716666666666667},"E70":{"fh":2.1333333333333333,"bh":2.8}}},"AMSALC":{"dist":1708,"ansp":5.5,"times":{"221":{"fh":2.183333333333333,"bh":2.6},"290":{"fh":2.283333333333333,"bh":2.7},"320":{"fh":2.283333333333333,"bh":2.7},"321":{"fh":2.283333333333333,"bh":2.7},"32N":{"fh":2.2666666666666666,"bh":2.6833333333333336},"738":{"fh":2.3166666666666664,"bh":2.7333333333333334},"752":{"fh":2.25,"bh":2.6666666666666665},"7M9":{"fh":2.2333333333333334,"bh":2.65},"E70":{"fh":2.35,"bh":2.7666666666666666}}},"AMSCDG":{"dist":402,"ansp":5.5,"times":{"221":{"fh":0.7,"bh":1.2},"290":{"fh":0.7166666666666667,"bh":1.2166666666666668},"320":{"fh":0.7166666666666667,"bh":1.2166666666666668},"321":{"fh":0.7166666666666667,"bh":1.2166666666666668},"32N":{"fh":0.7166666666666667,"bh":1.2166666666666668},"738":{"fh":0.7333333333333333,"bh":1.2333333333333334},"752":{"fh":0.7166666666666667,"bh":1.2166666666666668},"7M9":{"fh":0.7166666666666667,"bh":1.2166666666666668},"E70":{"fh":0.7333333333333333,"bh":1.2333333333333334}}},"AMSGVA":{"dist":682,"ansp":5.5,"times":{"221":{"fh":1.0166666666666666,"bh":1.4333333333333333},"290":{"fh":1.05,"bh":1.4666666666666668},"320":{"fh":1.05,"bh":1.4666666666666668},"321":{"fh":1.05,"bh":1.4666666666666668},"32N":{"fh":1.05,"bh":1.4666666666666668},"738":{"fh":1.0666666666666667,"bh":1.4833333333333334},"752":{"fh":1.05,"bh":1.4666666666666668},"7M9":{"fh":1.0333333333333334,"bh":1.45},"E70":{"fh":1.0833333333333333,"bh":1.5}}},"AMSLHR":{"dist":371,"ansp":5.5,"times":{"221":{"fh":0.6666666666666666,"bh":1.4166666666666667},"290":{"fh":0.6833333333333333,"bh":1.4333333333333333},"320":{"fh":0.6833333333333333,"bh":1.4333333333333333},"321":{"fh":0.6833333333333333,"bh":1.4333333333333333},"32N":{"fh":0.6833333333333333,"bh":1.4333333333333333},"738":{"fh":0.7,"bh":1.45},"752":{"fh":0.6833333333333333,"bh":1.4333333333333333},"7M9":{"fh":0.6833333333333333,"bh":1.4333333333333333},"E70":{"fh":0.7,"bh":1.45}}},"CDGALC":{"dist":1280,"ansp":5.5,"times":{"221":{"fh":1.7,"bh":2.1166666666666667},"290":{"fh":1.7666666666666666,"bh":2.183333333333333},"320":{"fh":1.7666666666666666,"bh":2.183333333333333},"321":{"fh":1.7666666666666666,"bh":2.183333333333333},"32N":{"fh":1.7666666666666666,"bh":2.183333333333333},"738":{"fh":1.8,"bh":2.216666666666667},"752":{"fh":1.75,"bh":2.1666666666666665},"7M9":{"fh":1.7333333333333334,"bh":2.15},"E70":{"fh":1.8166666666666667,"bh":2.2333333333333334}}},"CDGAMS":{"dist":415,"ansp":5.5,"times":{"221":{"fh":0.7166666666666667,"bh":1.2166666666666668},"290":{"fh":0.7333333333333333,"bh":1.2333333333333334},"320":{"fh":0.7333333333333333,"bh":1.2333333333333334},"321":{"fh":0.7333333333333333,"bh":1.2333333333333334},"32N":{"fh":0.7333333333333333,"bh":1.2333333333333334},"738":{"fh":0.75,"bh":1.25},"752":{"fh":0.7333333333333333,"bh":1.2333333333333334},"7M9":{"fh":0.7333333333333333,"bh":1.2333333333333334},"E70":{"fh":0.75,"bh":1.25}}},"CDGGVA":{"dist":415,"ansp":5.5,"times":{"221":{"fh":0.7166666666666667,"bh":1.1333333333333333},"290":{"fh":0.7333333333333333,"bh":1.15},"320":{"fh":0.7333333333333333,"bh":1.15},"321":{"fh":0.7333333333333333,"bh":1.15},"32N":{"fh":0.7333333333333333,"bh":1.15},"738":{"fh":0.75,"bh":1.1666666666666667},"752":{"fh":0.7333333333333333,"bh":1.15},"7M9":{"fh":0.7333333333333333,"bh":1.15},"E70":{"fh":0.75,"bh":1.1666666666666667}}},"CDGLHR":{"dist":375,"ansp":5.5,"times":{"221":{"fh":0.6666666666666666,"bh":1.4166666666666667},"290":{"fh":0.6833333333333333,"bh":1.4333333333333333},"320":{"fh":0.6833333333333333,"bh":1.4333333333333333},"321":{"fh":0.6833333333333333,"bh":1.4333333333333333},"32N":{"fh":0.6833333333333333,"bh":1.4333333333333333},"738":{"fh":0.7,"bh":1.45},"752":{"fh":0.6833333333333333,"bh":1.4333333333333333},"7M9":{"fh":0.6833333333333333,"bh":1.4333333333333333},"E70":{"fh":0.7,"bh":1.45}}},"GVAALC":{"dist":1057,"ansp":5.5,"times":{"221":{"fh":1.45,"bh":1.7833333333333332},"290":{"fh":1.5,"bh":1.8333333333333335},"320":{"fh":1.5,"bh":1.8333333333333335},"321":{"fh":1.5,"bh":1.8333333333333335},"32N":{"fh":1.5,"bh":1.8333333333333335},"738":{"fh":1.5333333333333332,"bh":1.8666666666666667},"752":{"fh":1.4833333333333334,"bh":1.8166666666666667},"7M9":{"fh":1.4833333333333334,"bh":1.8166666666666667},"E70":{"fh":1.55,"bh":1.8833333333333333}}},"GVAAMS":{"dist":700,"ansp":5.5,"times":{"221":{"fh":1.0333333333333334,"bh":1.45},"290":{"fh":1.0833333333333333,"bh":1.5},"320":{"fh":1.0833333333333333,"bh":1.5},"321":{"fh":1.0833333333333333,"bh":1.5},"32N":{"fh":1.0666666666666667,"bh":1.4833333333333334},"738":{"fh":1.1,"bh":1.5166666666666666},"752":{"fh":1.0666666666666667,"bh":1.4833333333333334},"7M9":{"fh":1.0666666666666667,"bh":1.4833333333333334},"E70":{"fh":1.1,"bh":1.5166666666666666}}},"GVACDG":{"dist":423,"ansp":5.5,"times":{"221":{"fh":0.7166666666666667,"bh":1.1333333333333333},"290":{"fh":0.75,"bh":1.1666666666666667},"320":{"fh":0.75,"bh":1.1666666666666667},"321":{"fh":0.75,"bh":1.1666666666666667},"32N":{"fh":0.75,"bh":1.1666666666666667},"738":{"fh":0.75,"bh":1.1666666666666667},"752":{"fh":0.7333333333333333,"bh":1.15},"7M9":{"fh":0.7333333333333333,"bh":1.15},"E70":{"fh":0.7666666666666667,"bh":1.1833333333333333}}},"GVALHR":{"dist":756,"ansp":5.5,"times":{"221":{"fh":1.1,"bh":1.7666666666666666},"290":{"fh":1.15,"bh":1.8166666666666667},"320":{"fh":1.15,"bh":1.8166666666666667},"321":{"fh":1.15,"bh":1.8166666666666667},"32N":{"fh":1.15,"bh":1.8166666666666667},"738":{"fh":1.1666666666666667,"bh":1.8333333333333335},"752":{"fh":1.1333333333333333,"bh":1.8},"7M9":{"fh":1.1333333333333333,"bh":1.8},"E70":{"fh":1.1666666666666667,"bh":1.8333333333333335}}},"LHRALC":{"dist":1599,"ansp":5.5,"times":{"221":{"fh":2.066666666666667,"bh":2.7333333333333334},"290":{"fh":2.15,"bh":2.8166666666666664},"320":{"fh":2.15,"bh":2.8166666666666664},"321":{"fh":2.15,"bh":2.8166666666666664},"32N":{"fh":2.15,"bh":2.8166666666666664},"738":{"fh":2.183333333333333,"bh":2.85},"752":{"fh":2.1166666666666667,"bh":2.783333333333333},"7M9":{"fh":2.1166666666666667,"bh":2.783333333333333},"E70":{"fh":2.216666666666667,"bh":2.8833333333333333}}},"LHRAMS":{"dist":392,"ansp":5.5,"times":{"221":{"fh":0.6833333333333333,"bh":1.4333333333333333},"290":{"fh":0.7166666666666667,"bh":1.4666666666666668},"320":{"fh":0.7166666666666667,"bh":1.4666666666666668},"321":{"fh":0.7166666666666667,"bh":1.4666666666666668},"32N":{"fh":0.7,"bh":1.45},"738":{"fh":0.7166666666666667,"bh":1.4666666666666668},"752":{"fh":0.7,"bh":1.45},"7M9":{"fh":0.7,"bh":1.45},"E70":{"fh":0.7333333333333333,"bh":1.4833333333333334}}},"LHRCDG":{"dist":354,"ansp":5.5,"times":{"221":{"fh":0.65,"bh":1.4},"290":{"fh":0.6666666666666666,"bh":1.4166666666666667},"320":{"fh":0.6666666666666666,"bh":1.4166666666666667},"321":{"fh":0.6666666666666666,"bh":1.4166666666666667},"32N":{"fh":0.6666666666666666,"bh":1.4166666666666667},"738":{"fh":0.6666666666666666,"bh":1.4166666666666667},"752":{"fh":0.65,"bh":1.4},"7M9":{"fh":0.65,"bh":1.4},"E70":{"fh":0.6833333333333333,"bh":1.4333333333333333}}},"LHRGVA":{"dist":775,"ansp":5.5,"times":{"221":{"fh":1.1166666666666667,"bh":1.7833333333333332},"290":{"fh":1.1666666666666667,"bh":1.8333333333333335},"320":{"fh":1.1666666666666667,"bh":1.8333333333333335},"321":{"fh":1.1666666666666667,"bh":1.8333333333333335},"32N":{"fh":1.1666666666666667,"bh":1.8333333333333335},"738":{"fh":1.1833333333333333,"bh":1.85},"752":{"fh":1.15,"bh":1.8166666666666667},"7M9":{"fh":1.15,"bh":1.8166666666666667},"E70":{"fh":1.2,"bh":1.8666666666666667}}}},"demand":{"ALCAMS":{"F":{"y2023":[75,112,108,79],"y2022":[74,110,106,78],"y2019":[69,103,99,72]},"J":{"y2023":[1092,1390,1340,1142],"y2022":[1039,1322,1274,1086],"y2019":[892,1136,1095,933]},"Y":{"y2023":[28774,52153,62943,35968],"y2022":[26715,48422,58440,33395],"y2019":[14761,26754,32289,18451]}},"ALCGVA":{"F":{"y2023":[159,212,242,143],"y2022":[157,209,239,141],"y2019":[149,198,226,134]},"J":{"y2023":[655,768,797,626],"y2022":[626,733,761,598],"y2019":[583,683,709,557]},"Y":{"y2023":[8901,16022,23736,10680],"y2022":[8506,15310,22682,10206],"y2019":[7175,12916,19134,8609]}},"ALCLON":{"F":{"y2023":[140,213,228,155],"y2022":[138,210,225,153],"y2019":[131,199,213,145]},"J":{"y2023":[3338,4610,4451,3497],"y2022":[3144,4343,4193,3294],"y2019":[2782,3842,3709,2914]},"Y":{"y2023":[210267,346322,445271,235004],"y2022":[217004,357418,459538,242534],"y2019":[183938,302957,389516,205578]}},"ALCPAR":{"F":{"y2023":[77,119,108,81],"y2022":[76,117,106,80],"y2019":[71,109,99,74]},"J":{"y2023":[1963,2499,2498,1963],"y2022":[1875,2387,2386,1875],"y2019":[1521,1937,1936,1521]},"Y":{"y2023":[31723,45998,50758,30137],"y2022":[25196,36534,40315,23937],"y2019":[16286,23615,26059,15472]}},"AMSGVA":{"F":{"y2023":[100,65,68,91],"y2022":[96,63,65,88],"y2019":[88,57,60,80]},"J":{"y2023":[4254,4212,4632,4112],"y2022":[3774,3736,4109,3648],"y2019":[3979,3939,4332,3846]},"Y":{"y2023":[125138,98323,93854,129608],"y2022":[99974,78551,74981,103545],"y2019":[71902,56495,53927,74470]}},"AMSLON":{"F":{"y2023":[94,90,86,90],"y2022":[93,89,85,89],"y2019":[87,83,80,83]},"J":{"y2023":[35572,38397,32741,35099],"y2022":[38760,41838,35675,38245],"y2019":[42162,45510,38807,41601]},"Y":{"y2023":[636454,610996,636454,661913],"y2022":[596881,573006,596881,620757],"y2019":[508505,488165,508505,528846]}},"AMSPAR":{"F":{"y2023":[54,49,56,56],"y2022":[53,48,55,55],"y2019":[50,45,52,52]},"J":{"y2023":[9087,10835,8918,9405],"y2022":[9072,10817,8903,9390],"y2019":[10412,12415,10219,10777]},"Y":{"y2023":[85164,85164,85163,85164],"y2022":[80812,80812,80811,80812],"y2019":[69187,69187,69186,69187]}},"GVALON":{"F":{"y2023":[454,318,302,438],"y2022":[447,313,297,431],"y2019":[430,301,286,414]},"J":{"y2023":[38505,38114,41915,37211],"y2022":[39732,39328,43250,38396],"y2019":[38632,38240,42054,37334]},"Y":{"y2023":[545432,369486,351892,492649],"y2022":[500564,339091,322945,452123],"y2019":[422950,286514,272871,382020]}},"GVAPAR":{"F":{"y2023":[351,241,242,375],"y2022":[348,239,240,372],"y2019":[336,230,231,359]},"J":{"y2023":[12799,13816,11781,12629],"y2022":[13402,14467,12336,13224],"y2019":[12762,13776,11747,12592]},"Y":{"y2023":[169848,113232,118893,164186],"y2022":[151133,100755,105792,146095],"y2019":[125230,83487,87661,121056]}},"LONPAR":{"F":{"y2023":[293,281,270,281],"y2022":[290,278,267,278],"y2019":[276,265,255,265]},"J":{"y2023":[19868,23688,19497,20563],"y2022":[21905,26116,21496,22671],"y2019":[22838,27229,22411,23637]},"Y":{"y2023":[240221,240223,240222,240224],"y2022":[246273,246276,246274,246277],"y2019":[212882,212884,212883,212885]}}},"competitors":[{"airline":"Air France","route":"ALCCDG","cabin":"F","seatsQ":[130,156,156,130],"fareQ":[428,428,428,428]},{"airline":"British Airways","route":"AMSLHR","cabin":"F","seatsQ":[1040,1040,1040,1040],"fareQ":[566,566,566,566]},{"airline":"Swiss","route":"ALCGVA","cabin":"Y","seatsQ":[2600,5200,5200,2600],"fareQ":[95,95,95,95]},{"airline":"Swiss","route":"GVALHR","cabin":"J","seatsQ":[22880,22880,22880,22880],"fareQ":[424,424,424,424]},{"airline":"Air France","route":"CDGLHR","cabin":"J","seatsQ":[12480,12480,12480,12480],"fareQ":[338,338,338,338]},{"airline":"Air France","route":"CDGLHR","cabin":"F","seatsQ":[624,624,624,624],"fareQ":[542,542,542,542]},{"airline":"KLM","route":"AMSGVA","cabin":"Y","seatsQ":[36400,36400,36400,36400],"fareQ":[117,117,117,117]},{"airline":"Swiss","route":"GVALHR","cabin":"F","seatsQ":[1144,1144,1144,1144],"fareQ":[649,649,649,649]},{"airline":"Air France","route":"ALCCDG","cabin":"J","seatsQ":[2600,3120,3120,2600],"fareQ":[275,275,275,275]},{"airline":"KLM","route":"AMSLHR","cabin":"J","seatsQ":[20800,20800,20800,20800],"fareQ":[369,369,369,369]},{"airline":"KLM","route":"AMSCDG","cabin":"Y","seatsQ":[45760,45760,45760,45760],"fareQ":[163,163,163,163]},{"airline":"Easyjet","route":"ALCGVA","cabin":"Y","seatsQ":[9828,14742,19656,9828],"fareQ":[87,87,87,87]},{"airline":"Ryanair","route":"AMSLHR","cabin":"Y","seatsQ":[206388,191646,206388,221130],"fareQ":[90,90,90,90]},{"airline":"Easyjet","route":"ALCLHR","cabin":"Y","seatsQ":[103194,186732,235872,117936],"fareQ":[75,75,75,75]},{"airline":"Air France","route":"CDGLHR","cabin":"Y","seatsQ":[74880,74880,74880,74880],"fareQ":[99,99,99,99]},{"airline":"KLM","route":"AMSCDG","cabin":"F","seatsQ":[286,286,286,286],"fareQ":[525,525,525,525]},{"airline":"Easyjet","route":"ALCCDG","cabin":"Y","seatsQ":[19656,39312,54054,24570],"fareQ":[86,86,86,86]},{"airline":"Air France","route":"AMSCDG","cabin":"J","seatsQ":[5720,5720,5720,5720],"fareQ":[381,381,381,381]},{"airline":"British Airways","route":"GVALHR","cabin":"Y","seatsQ":[114400,114400,114400,114400],"fareQ":[110,110,110,110]},{"airline":"British Airways","route":"ALCLHR","cabin":"F","seatsQ":[208,260,260,208],"fareQ":[726,726,726,726]},{"airline":"KLM","route":"AMSLHR","cabin":"Y","seatsQ":[166400,166400,166400,166400],"fareQ":[117,117,117,117]},{"airline":"Air France","route":"AMSCDG","cabin":"F","seatsQ":[286,286,286,286],"fareQ":[525,525,525,525]},{"airline":"British Airways","route":"GVALHR","cabin":"F","seatsQ":[1144,1144,1144,1144],"fareQ":[649,649,649,649]},{"airline":"British Airways","route":"ALCLHR","cabin":"Y","seatsQ":[33280,41600,41600,33280],"fareQ":[86,86,86,86]},{"airline":"KLM","route":"ALCAMS","cabin":"J","seatsQ":[1040,1560,1560,1040],"fareQ":[416,416,416,416]},{"airline":"Swiss","route":"ALCGVA","cabin":"J","seatsQ":[520,1040,1040,520],"fareQ":[630,630,630,630]},{"airline":"British Airways","route":"CDGLHR","cabin":"F","seatsQ":[624,624,624,624],"fareQ":[542,542,542,542]},{"airline":"Air France","route":"AMSCDG","cabin":"Y","seatsQ":[45760,45760,45760,45760],"fareQ":[163,163,163,163]},{"airline":"Ryanair","route":"ALCLHR","cabin":"Y","seatsQ":[103194,186732,235872,117936],"fareQ":[80,80,80,80]},{"airline":"Easyjet","route":"ALCAMS","cabin":"Y","seatsQ":[29484,54054,68796,34398],"fareQ":[82,82,82,82]},{"airline":"British Airways","route":"GVALHR","cabin":"J","seatsQ":[22880,22880,22880,22880],"fareQ":[424,424,424,424]},{"airline":"Easyjet","route":"GVALHR","cabin":"Y","seatsQ":[412776,206388,186732,353808],"fareQ":[98,98,98,98]},{"airline":"Easyjet","route":"AMSGVA","cabin":"Y","seatsQ":[122850,73710,68796,108108],"fareQ":[99,99,99,99]},{"airline":"Swiss","route":"ALCGVA","cabin":"F","seatsQ":[26,52,52,26],"fareQ":[825,825,825,825]},{"airline":"British Airways","route":"CDGLHR","cabin":"Y","seatsQ":[74880,74880,74880,74880],"fareQ":[99,99,99,99]},{"airline":"Air France","route":"CDGGVA","cabin":"F","seatsQ":[754,754,754,754],"fareQ":[625,625,625,625]},{"airline":"Air France","route":"CDGGVA","cabin":"J","seatsQ":[15080,15080,15080,15080],"fareQ":[437,437,437,437]},{"airline":"British Airways","route":"AMSLHR","cabin":"J","seatsQ":[20800,20800,20800,20800],"fareQ":[369,369,369,369]},{"airline":"Air France","route":"CDGGVA","cabin":"Y","seatsQ":[75400,75400,75400,75400],"fareQ":[118,118,118,118]},{"airline":"KLM","route":"ALCAMS","cabin":"Y","seatsQ":[5200,7800,7800,5200],"fareQ":[104,104,104,104]},{"airline":"KLM","route":"AMSGVA","cabin":"J","seatsQ":[5200,5200,5200,5200],"fareQ":[369,369,369,369]},{"airline":"British Airways","route":"CDGLHR","cabin":"J","seatsQ":[12480,12480,12480,12480],"fareQ":[338,338,338,338]},{"airline":"British Airways","route":"ALCLHR","cabin":"J","seatsQ":[4160,5200,5200,4160],"fareQ":[544,544,544,544]},{"airline":"Air France","route":"ALCCDG","cabin":"Y","seatsQ":[13000,15600,15600,13000],"fareQ":[106,106,106,106]},{"airline":"KLM","route":"AMSCDG","cabin":"J","seatsQ":[5720,5720,5720,5720],"fareQ":[381,381,381,381]},{"airline":"KLM","route":"AMSLHR","cabin":"F","seatsQ":[1040,1040,1040,1040],"fareQ":[566,566,566,566]},{"airline":"British Airways","route":"AMSLHR","cabin":"Y","seatsQ":[166400,166400,166400,166400],"fareQ":[117,117,117,117]},{"airline":"Easyjet","route":"CDGGVA","cabin":"Y","seatsQ":[132678,63882,58968,113022],"fareQ":[101,101,101,101]},{"airline":"Swiss","route":"GVALHR","cabin":"Y","seatsQ":[114400,114400,114400,114400],"fareQ":[110,110,110,110]},{"airline":"KLM","route":"AMSGVA","cabin":"F","seatsQ":[260,260,260,260],"fareQ":[566,566,566,566]},{"airline":"Easyjet","route":"AMSLHR","cabin":"Y","seatsQ":[211302,196560,211302,226044],"fareQ":[98,98,98,98]},{"airline":"Easyjet","route":"CDGLHR","cabin":"Y","seatsQ":[132678,122850,132678,147420],"fareQ":[89,89,89,89]},{"airline":"KLM","route":"ALCAMS","cabin":"F","seatsQ":[52,78,78,52],"fareQ":[686,686,686,686]}],"services":[{"service":"Wifi","avail":"CHARGED","cabin":"F","rev":10,"cost":6},{"service":"Lounge","avail":"CHARGED","cabin":"F","rev":20,"cost":15},{"service":"IFE","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"Lounge","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"IFE","avail":"CHARGED","cabin":"J","rev":5,"cost":3},{"service":"IFE","avail":"CHARGED","cabin":"Y","rev":5,"cost":3},{"service":"Lounge","avail":"FREE","cabin":"F","rev":0,"cost":15},{"service":"Lounge","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"Priority","avail":"CHARGED","cabin":"F","rev":10,"cost":3},{"service":"IFE","avail":"CHARGED","cabin":"J","rev":5,"cost":3},{"service":"Lounge","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"Lounge","avail":"CHARGED","cabin":"F","rev":20,"cost":15},{"service":"Baggage","avail":"FREE","cabin":"Y","rev":0,"cost":4},{"service":"Baggage","avail":"FREE","cabin":"Y","rev":0,"cost":4},{"service":"Baggage","avail":"FREE","cabin":"J","rev":0,"cost":4},{"service":"Priority","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Baggage","avail":"CHARGED","cabin":"Y","rev":10,"cost":4},{"service":"Wifi","avail":"CHARGED","cabin":"Y","rev":10,"cost":6},{"service":"IFE","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Baggage","avail":"FREE","cabin":"F","rev":0,"cost":4},{"service":"Catering","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"Wifi","avail":"CHARGED","cabin":"Y","rev":10,"cost":6},{"service":"IFE","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"Priority","avail":"CHARGED","cabin":"Y","rev":10,"cost":3},{"service":"Wifi","avail":"CHARGED","cabin":"F","rev":10,"cost":6},{"service":"Priority","avail":"CHARGED","cabin":"J","rev":10,"cost":3},{"service":"Lounge","avail":"FREE","cabin":"Y","rev":0,"cost":15},{"service":"Wifi","avail":"CHARGED","cabin":"Y","rev":10,"cost":6},{"service":"Wifi","avail":"FREE","cabin":"J","rev":0,"cost":6},{"service":"Priority","avail":"CHARGED","cabin":"Y","rev":10,"cost":3},{"service":"Catering","avail":"CHARGED","cabin":"Y","rev":8,"cost":6},{"service":"Catering","avail":"CHARGED","cabin":"Y","rev":8,"cost":6},{"service":"Lounge","avail":"CHARGED","cabin":"Y","rev":20,"cost":15},{"service":"Baggage","avail":"CHARGED","cabin":"Y","rev":10,"cost":4},{"service":"Catering","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"IFE","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Catering","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"IFE","avail":"CHARGED","cabin":"Y","rev":5,"cost":3},{"service":"Baggage","avail":"FREE","cabin":"J","rev":0,"cost":4},{"service":"Lounge","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"Priority","avail":"CHARGED","cabin":"Y","rev":10,"cost":3},{"service":"Wifi","avail":"FREE","cabin":"J","rev":0,"cost":6},{"service":"Priority","avail":"CHARGED","cabin":"J","rev":10,"cost":3},{"service":"Wifi","avail":"CHARGED","cabin":"J","rev":10,"cost":6},{"service":"IFE","avail":"CHARGED","cabin":"F","rev":5,"cost":3},{"service":"IFE","avail":"CHARGED","cabin":"F","rev":5,"cost":3},{"service":"Priority","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"IFE","avail":"CHARGED","cabin":"Y","rev":5,"cost":3},{"service":"Baggage","avail":"CHARGED","cabin":"J","rev":10,"cost":4},{"service":"Priority","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Catering","avail":"CHARGED","cabin":"F","rev":25,"cost":20},{"service":"Catering","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"IFE","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Baggage","avail":"CHARGED","cabin":"J","rev":10,"cost":4},{"service":"Wifi","avail":"FREE","cabin":"J","rev":0,"cost":6},{"service":"Catering","avail":"FREE","cabin":"F","rev":0,"cost":20},{"service":"Priority","avail":"CHARGED","cabin":"F","rev":10,"cost":3},{"service":"Wifi","avail":"FREE","cabin":"F","rev":0,"cost":6},{"service":"IFE","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Catering","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"Catering","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"Catering","avail":"CHARGED","cabin":"F","rev":25,"cost":20},{"service":"Catering","avail":"FREE","cabin":"F","rev":0,"cost":20},{"service":"Baggage","avail":"FREE","cabin":"F","rev":0,"cost":4},{"service":"Baggage","avail":"FREE","cabin":"F","rev":0,"cost":4},{"service":"Baggage","avail":"CHARGED","cabin":"F","rev":10,"cost":4},{"service":"Baggage","avail":"FREE","cabin":"J","rev":0,"cost":4},{"service":"Priority","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Priority","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"Lounge","avail":"CHARGED","cabin":"F","rev":20,"cost":15},{"service":"Wifi","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"Priority","avail":"FREE","cabin":"Y","rev":0,"cost":3},{"service":"Lounge","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"Lounge","avail":"FREE","cabin":"Y","rev":0,"cost":15},{"service":"Baggage","avail":"CHARGED","cabin":"Y","rev":10,"cost":4},{"service":"Lounge","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"IFE","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"Wifi","avail":"CHARGED","cabin":"J","rev":10,"cost":6},{"service":"Wifi","avail":"FREE","cabin":"F","rev":0,"cost":6},{"service":"Wifi","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"Baggage","avail":"CHARGED","cabin":"F","rev":10,"cost":4},{"service":"Priority","avail":"CHARGED","cabin":"F","rev":10,"cost":3},{"service":"Baggage","avail":"CHARGED","cabin":"F","rev":10,"cost":4},{"service":"Priority","avail":"CHARGED","cabin":"J","rev":10,"cost":3},{"service":"IFE","avail":"CHARGED","cabin":"J","rev":5,"cost":3},{"service":"IFE","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Priority","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Wifi","avail":"CHARGED","cabin":"F","rev":10,"cost":6},{"service":"Lounge","avail":"FREE","cabin":"F","rev":0,"cost":15},{"service":"Catering","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"Lounge","avail":"FREE","cabin":"Y","rev":0,"cost":15},{"service":"Wifi","avail":"FREE","cabin":"Y","rev":0,"cost":6},{"service":"IFE","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Catering","avail":"FREE","cabin":"F","rev":0,"cost":20},{"service":"Baggage","avail":"CHARGED","cabin":"J","rev":10,"cost":4},{"service":"Wifi","avail":"FREE","cabin":"F","rev":0,"cost":6},{"service":"Baggage","avail":"FREE","cabin":"Y","rev":0,"cost":4},{"service":"Priority","avail":"FREE","cabin":"J","rev":0,"cost":3},{"service":"Lounge","avail":"FREE","cabin":"F","rev":0,"cost":15},{"service":"Lounge","avail":"CHARGED","cabin":"Y","rev":20,"cost":15},{"service":"Priority","avail":"FREE","cabin":"F","rev":0,"cost":3},{"service":"Lounge","avail":"CHARGED","cabin":"Y","rev":20,"cost":15},{"service":"Wifi","avail":"CHARGED","cabin":"J","rev":10,"cost":6},{"service":"Catering","avail":"FREE","cabin":"J","rev":0,"cost":15},{"service":"Catering","avail":"CHARGED","cabin":"F","rev":25,"cost":20},{"service":"Catering","avail":"CHARGED","cabin":"Y","rev":8,"cost":6},{"service":"Catering","avail":"CHARGED","cabin":"J","rev":20,"cost":15},{"service":"IFE","avail":"CHARGED","cabin":"F","rev":5,"cost":3}],"general":{"Cost of Fuel":0.9700000286102295,"Environmental Charge":0.05000000074505806,"Fixed Overhead Cost":1000000,"Fixed Overhead Cost per Aircraft":250000}};
+/* =====================================================================
+   AirStrategist: engine (built on the MNA1010 University Challenge 2024 dataset)
+   © 2026 Marina Efthymiou. Licensed under CC BY-NC 4.0.
+   https://creativecommons.org/licenses/by-nc/4.0/
+   All airline economics below are driven by the real workbook:
+   aircraft, cabin configs, block times, per-airport costs, quarterly
+   F/J/Y demand (2019/2022/2023), competitor seats & fares, services,
+   and general costs. Modelled-but-not-in-data items are marked ASSUMPTION.
+   ===================================================================== */
+
+// DATA is injected just above (see data_embed). Convenience refs:
+const AC = DATA.aircraft, CFG = DATA.config, APC = DATA.airportCost,
+      AIRPORTS = DATA.airports, RT = DATA.routes, DEM = DATA.demand,
+      COMP = DATA.competitors, SVC = DATA.services, GEN = DATA.general;
+
+const CITY_OF = { LHR:'LON', CDG:'PAR', AMS:'AMS', GVA:'GVA', ALC:'ALC' };  // airport -> demand city code
+const CABINS = ['F','J','Y'];
+
+const CONFIG = {
+  quarters: 8,                  // two years (8 quarters)
+  startCash: 30e6,              // ASSUMPTION: calibrated so a well-run carrier survives and a poor one can fail
+  baseYear: 'y2023',            // demand baseline
+  fuelBase: GEN['Cost of Fuel'],        // 0.97 per unit fuel burn
+  envCharge: GEN['Environmental Charge'],// 0.05 per unit fuel burn (rises over time, see carbonRate)
+  envStep: 0.010,               // ASSUMPTION: environmental charge rises each quarter
+  overheadFixed: GEN['Fixed Overhead Cost'],        // 1,000,000 / quarter
+  overheadPerAircraft: GEN['Fixed Overhead Cost per Aircraft'], // 250,000 / aircraft / quarter
+  weeksPerQuarter: 13,
+  fuelWalk: 0.07, fuelMin: 0.70, fuelMax: 1.60,   // ASSUMPTION fuel random walk bounds
+  bankruptcy: -12e6,
+  base: 'GVA',                  // Geneva: a genuine dual-model airport (Swiss/Star hub AND easyJet's largest base outside the UK)
+  baseName: 'Geneva',
+  destinations: ['LHR','CDG','AMS','ALC'],
+  coreRoutes: ['LHR','CDG'],    // trunk routes where hub & alliance feed count most (largest premium markets from GVA)
+  hubCost: 1100000, allianceCost: 700000,   // ASSUMPTION per-quarter fixed costs
+  credit: 'AirStrategist: © 2026 Prof Marina Efthymiou · CC BY-NC 4.0 · marina.efthymiou@dcu.ie · DOI 10.5281/zenodo.22309151',
+  // demand allocation (ASSUMPTION, teaching-level):
+  //   share_seg = capacityShare adjusted by fare attractiveness vs competitors & vs willingness to pay
+  fareElastic: { F: 0.6, J: 0.9, Y: 1.25 },      // ASSUMPTION price elasticity by cabin
+  refFareMargin: 1.0,
+  coherenceKnee: 75, brandPenalty: 0.35, inefficiencyPenalty: 0.12
+};
+
+// ---- Models: LCC vs FSNC. Constrain coherent cabin configs & services. ----
+const MODELS = {
+  lcc: {
+    key:'lcc', name:'Low-Cost Carrier', short:'LCC',
+    tagline:'Dense single-class cabins, low fares, ancillaries on top.',
+    // coherent configs: economy-heavy. Penalise premium cabins.
+    prefersConfig:['Y','Y dense'], tolerateConfig:['J / Y'],
+    maxFamilies:1, network:'p2p', alliance:false,
+    ancillaryLean:'charge',        // charges for services -> ancillary revenue
+    fareBand:{ F:[0,0], J:[0.7,1.0], Y:[0.65,1.0] },  // Y is the game; premium discouraged
+    hubFeed:1.08, allianceFeed:{core:0.06, other:0.02},
+    yPull:1.10,                    // ASSUMPTION: economy demand uplift for a coherent LCC priced below market (direct distribution, price-shopper brand)
+    fits:'Point-to-point, one aircraft family, dense economy layouts (Y or Y-dense), fares below the network carriers, ancillaries charged. A First cabin, lounges or an alliance are off-model.'
+  },
+  fsnc: {
+    key:'fsnc', name:'Full-Service Network Carrier', short:'FSNC',
+    tagline:'Three cabins, connections, premium service and fares to match.',
+    prefersConfig:['J / Y','F / J / Y','F / Y'], tolerateConfig:['Y'],
+    maxFamilies:3, network:'hub', alliance:true,
+    ancillaryLean:'free',          // bundles services -> higher cost, premium positioning
+    fareBand:{ F:[0.9,1.4], J:[0.9,1.35], Y:[0.85,1.25] },
+    hubFeed:1.16, allianceFeed:{core:0.12, other:0.05},
+    fits:'Hub-and-spoke, alliance member, up to three fleet families, multi-cabin configs with a real Business (and often First) cabin, fares at or above market, premium services bundled. Flying all-economy dense contradicts the model.'
+  }
+};
+// FSNC key is 'fsnc'; the coherence code treats it as the premium/legacy model.
+
+const AC_ORDER = ['320','32N','321','738','7M9','221','290','E70','752'];
+
+// ---- Reference fares (market) per route+cabin, from competitor average fares ----
+// Where multiple competitors exist we take the mean; a route with no competitor
+// in a cabin falls back to a distance-scaled ASSUMPTION.
+function marketFare(sector, cabin){
+  const rows = COMP.filter(c => sameRoute(c.route, sector) && c.cabin===cabin && c.fareQ && c.fareQ[0]!=null);
+  if (rows.length){ const fares=rows.map(r=>avg(r.fareQ)); return avg(fares); }
+  // fallback: scale by distance & cabin
+  const dist = routeInfo(sector).dist || 800;
+  const base = 40 + dist*0.055;                       // ASSUMPTION economy fallback
+  return cabin==='Y'? base : cabin==='J'? base*3.2 : base*5.5;
+}
+function competitorFare(sector, cabin){ return marketFare(sector, cabin); }
+function competitorSeats(sector, cabin, q){
+  const rows = COMP.filter(c => sameRoute(c.route,sector) && c.cabin===cabin && c.seatsQ);
+  return rows.reduce((s,r)=> s + (r.seatsQ[q]||0), 0);
+}
+
+// route codes: data uses airport pairs (LHRAMS) in Routes/Airport, but city pairs
+// (AMSLON) in Demand. Normalise both directions & city/airport aliases.
+function sameRoute(a,b){ return normRoute(a)===normRoute(b); }
+function normRoute(code){
+  // split into two 3-letter tokens, map airport->city, sort so direction doesn't matter
+  const x=code.slice(0,3), y=code.slice(3,6);
+  const cx=CITY_OF[x]||x, cy=CITY_OF[y]||y;
+  return [cx,cy].sort().join('');
+}
+function demandKey(base, dest){ // city-code key used in Demand sheet
+  const a=CITY_OF[base]||base, b=CITY_OF[dest]||dest; return [a,b].sort().join(''); }
+function routeInfo(sector){
+  // find a Routes entry matching this airport pair (either direction)
+  for (const k in RT){ if (sameRoute(k, sector)) return RT[k]; }
+  return { dist: 800, ansp: 5.5, times:{} };
+}
+function blockHours(sector, acType){
+  const info=routeInfo(sector);
+  for (const k in RT){ if (sameRoute(k,sector) && RT[k].times[acType]) return RT[k].times[acType].bh; }
+  // fallback from distance & speed
+  const dist=info.dist||800; return dist/AC[acType].speed + 0.5;
+}
+function flightHours(sector, acType){
+  for (const k in RT){ if (sameRoute(k,sector) && RT[k].times[acType]) return RT[k].times[acType].fh; }
+  return blockHours(sector,acType)-0.42;
+}
+function avg(a){ const v=a.filter(x=>typeof x==='number'); return v.length? v.reduce((s,x)=>s+x,0)/v.length : 0; }
+function clamp(x,lo,hi){ return Math.max(lo,Math.min(hi,x)); }
+
+// ---- Seasonality per route+cabin, derived from the 2023 quarterly shape ----
+function seasonFactor(base, dest, cabin, q){
+  const key=demandKey(base,dest); const d=DEM[key]; if(!d||!d[cabin]) return 1;
+  const yr=d[cabin][CONFIG.baseYear]; const mean=avg(yr)||1;
+  return (yr[(q-1)%4]||mean)/mean;
+}
+function annualBaseline(base, dest, cabin){
+  const key=demandKey(base,dest); const d=DEM[key]; if(!d||!d[cabin]) return 0;
+  return avg(d[cabin][CONFIG.baseYear]); // average quarterly pax in that cabin (both directions, total market)
+}
+
+/* ---------- Aircraft/config helpers ---------- */
+function configSeats(acType, confName){ const c=CFG[acType] && CFG[acType][confName]; return c? c.seats : {}; }
+function configCrew(acType, confName){ const c=CFG[acType] && CFG[acType][confName]; return c? c.crew : 2; }
+function totalSeats(acType, confName){ const s=configSeats(acType,confName); return (s.F||0)+(s.J||0)+(s.Y||0); }
+function configName(acType, idx){ const keys=Object.keys(CFG[acType]||{}); return keys[clamp(idx,0,keys.length-1)]; }
+function configList(acType){ return Object.keys(CFG[acType]||{}); }
+
+/* =====================================================================
+   SHOCKS  (kept from teaching design; retargeted to this network)
+   ===================================================================== */
+const SHOCKS = {
+  fuel:{ key:'fuel', name:'Fuel price spike', duration:2, phases:[{fuel:1.55},{fuel:1.28}],
+    banner:'A supply shock has driven jet fuel up sharply this quarter, easing only partly next quarter.',
+    effect:'Fuel cost ×1.55 this quarter, ×1.28 next. Thirsty aircraft and thin routes suffer most.',
+    coach:{ lcc:'A low-cost carrier survives fuel spikes on efficiency: newest narrowbodies, dense seating, and cutting the thinnest frequencies rather than flying half-empty. Nudge Y fares up a little but stay below the network carriers.',
+            fsnc:'A network carrier has fuel exposure but also pricing power — Business and First fares can carry a surcharge. Protect the premium trunk routes, trim marginal economy frequency, and ground the thirstiest types first.' } },
+  recession:{ key:'recession', name:'Recession', duration:2, phases:[{J:0.60,F:0.55,Y:0.90},{J:0.75,F:0.72,Y:0.94}],
+    banner:'The economy has tipped into recession. Corporate travel budgets are frozen; premium-cabin demand has fallen hardest.',
+    effect:'Business/First demand ×0.6/0.55 (then ×0.75/0.72), economy ×0.9. Premium positioning is most exposed.',
+    coach:{ lcc:'Recessions favour low-cost carriers: economy holds up and trade-down traffic arrives. Hold low fares, keep costs flat, add economy capacity where rivals retreat.',
+            fsnc:'This hits hardest — premium yield evaporates. Cut premium-heavy frequency, but do NOT dump into low-cost fares (that dilutes the brand for years). Protect cash and keep the hub and alliance feed working.' } },
+  geo:{ key:'geo', name:'French ATC strike and airspace closures', duration:1, phases:[{fuel:1.12, routeDemand:{ CDG:0.6, ALC:0.75 }}],
+    banner:'Rolling French air-traffic-control strikes have closed swathes of airspace. Paris flights are being cancelled and everything overflying France to Spain is detouring; fuel markets are jittery.',
+    effect:'Paris demand ×0.6 and Alicante ×0.75 this quarter; fuel ×1.12 network-wide from detours.',
+    coach:{ lcc:'Thin or suspend the worst-hit leisure routes for the quarter and keep the core network steady. Low-cost carriers win by staying simple when the map gets complicated.',
+            fsnc:'Right-size the affected routes to protect slots and connections, and lean on the unaffected trunk and alliance feed.' } },
+  pricewar:{ key:'pricewar', name:'Competitor price war', duration:2, phases:[{comp:{ALC:0.70, LHR:0.80}},{comp:{ALC:0.84, LHR:0.88}}],
+    banner:'The dominant low-cost carrier at Geneva has slashed fares on the London and Alicante routes by up to 30% to defend its base.',
+    effect:'Competitor fares on LHR and ALC ×0.70 this quarter, ×0.84 next. Anyone priced above them loses economy share fast.',
+    coach:{ lcc:'You are built for this — match or beat the rival on economy, your costs are lower and ancillaries hold revenue per passenger up.',
+            fsnc:'Do not chase low-cost fares down; compete on schedule, premium cabins and connections, accept lower economy share for two quarters.' } },
+  pandemic:{ key:'pandemic', name:'Public-health demand collapse', duration:2, phases:[{J:0.35,F:0.30,Y:0.50},{J:0.60,F:0.55,Y:0.78}],
+    banner:'A public-health emergency has grounded most travel. Corporate bans mean premium demand is almost gone.',
+    effect:'Premium demand ×0.35/0.30 (then ×0.6/0.55), economy ×0.5 (then ×0.78). Leases still fall due.',
+    coach:{ lcc:'Cash preservation first. Cut frequency hard — a parked aircraft still costs its lease but burns no fuel and pays no airport fees. Keep fares low to recover first.',
+            fsnc:'Your cost base makes this the most dangerous shock. Cut premium frequency deeply, protect cash, and accept the hub cannot feed what nobody is flying.' } }
+};
+
+/* ===================== RNG (seeded) ===================== */
+function hashSeed(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return h>>>0; }
+function mulberry32(a){ return function(){ a|=0; a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; }; }
+function scheduleShocks(rng){
+  const occ=new Set(), list=[];
+  const place=(key,cands)=>{ const def=SHOCKS[key]; const free=cands.filter(q=>{for(let i=0;i<def.duration;i++) if(occ.has(q+i)||q+i>CONFIG.quarters) return false; return true;}); if(!free.length) return; const q=free[Math.floor(rng()*free.length)]; for(let i=0;i<def.duration;i++) occ.add(q+i); list.push({key,start:q}); };
+  // 8-quarter arc: fuel shock in year 1, recession in year 2, one disruption quarter; price war and pandemic are seed-dependent.
+  place('fuel',[3,4]); place('recession',[5,6,7]);
+  if(rng()<0.40) place('pandemic',[2,3,4,5,6,7]);
+  place('geo',[2,3,4,7,8]);
+  if(rng()<0.55) place('pricewar',[2,3,4,5,6,7]);
+  return list.sort((a,b)=>a.start-b.start);
+}
+
+/* ===================== GAME STATE ===================== */
+function defaultRoute(dest){
+  return { dest, active:true, aircraft:'320', configIdx:3 /* 'Y' for 320 */, freq:14,
+           fares:{ F:0, J:0, Y:0 } };
+}
+function newGame(modelKey, seedText, name){
+  const seedStr=String(seedText).trim().toLowerCase();   // case-insensitive so 'MNA1010' and 'mna1010' are the same scenario
+  const rng=mulberry32(hashSeed(seedStr));
+  const m=MODELS[modelKey];
+  const st={ model:modelKey, name:name||m.short+' Air', seed:seedStr, rng,
+    quarter:1, cash:CONFIG.startCash, fuelPrice:CONFIG.fuelBase,
+    network:m.network, alliance:m.alliance,
+    base:CONFIG.base,
+    routes:CONFIG.destinations.map(defaultRoute),
+    compIndex:{}, shocks:scheduleShocks(rng), history:[], over:false, overReason:null };
+  // sensible starting fares & configs by model
+  st.routes.forEach(r=>{
+    const sector=st.base+r.dest;
+    const cfgKeys=configList(r.aircraft);
+    if(modelKey==='lcc'){ r.configIdx=cfgKeys.indexOf('Y')>=0?cfgKeys.indexOf('Y'):3; }
+    else { r.configIdx=cfgKeys.indexOf('J / Y')>=0?cfgKeys.indexOf('J / Y'):0; }   // European short-haul FSNC default: Business + Economy; First is optional
+    r.fares.Y=Math.round(marketFare(sector,'Y')*(modelKey==='lcc'?0.85:1.0));
+    r.fares.J=Math.round(marketFare(sector,'J')*(modelKey==='lcc'?0:1.0));
+    r.fares.F=Math.round(marketFare(sector,'F')*(modelKey==='lcc'?0:1.0));
+  });
+  rollComp(st);
+  return st;
+}
+function rollComp(st){ st.compIndex={}; CONFIG.destinations.forEach(d=>{ st.compIndex[d]=0.94+st.rng()*0.12; }); }
+
+function activeShock(st,q){ for(const s of st.shocks){ const def=SHOCKS[s.key]; if(q>=s.start && q<s.start+def.duration) return {def,phase:q-s.start,start:s.start}; } return null; }
+function shockFx(shock){ const fx={fuel:1,F:1,J:1,Y:1,routeDemand:{},comp:{}}; if(!shock) return fx; const p=shock.def.phases[shock.phase];
+  if(p.fuel)fx.fuel=p.fuel; if(p.F)fx.F=p.F; if(p.J)fx.J=p.J; if(p.Y)fx.Y=p.Y; if(p.routeDemand)fx.routeDemand=p.routeDemand; if(p.comp)fx.comp=p.comp; return fx; }
+function carbonRate(q){ return CONFIG.envCharge + CONFIG.envStep*(q-1); }
+function activeFamilies(st){ const f=new Set(); st.routes.forEach(r=>{ if(r.active && r.freq>0) f.add(AC[r.aircraft].family); }); return [...f]; }
+function fleetMult(n){ return [1,0.94,1.0,1.06,1.14][Math.min(4,n)]; }
+
+/* ===================== COHERENCE ===================== */
+function assessCoherence(st){
+  const m=MODELS[st.model]; const v=[]; const add=(k,p,t)=>v.push({key:k,pts:p,text:t});
+  if(st.network!==m.network) add('network', m.key==='lcc'?14:15,
+    m.network==='hub' ? 'Point-to-point flying gives a network carrier no connecting passengers to fill its premium cabins.'
+                      : 'A hub-and-spoke network adds banked-schedule complexity a low-cost cost base is not built to carry.');
+  if(st.alliance && !m.alliance) add('alliance',12,'Alliance membership costs money for feed a low-cost carrier cannot use — its passengers do not connect and its fares do not interline.');
+  if(!st.alliance && m.alliance) add('alliance',12,'A network carrier outside an alliance gives connecting traffic on Geneva\u2013London and Geneva\u2013Paris to rivals who are inside one.');
+  const fams=activeFamilies(st);
+  if(fams.length>m.maxFamilies) add('fleet',10*(fams.length-m.maxFamilies),
+    `${fams.length} aircraft families against a tolerance of ${m.maxFamilies} for ${art(m)}: separate crews, spares and maintenance lines push unit costs up.`);
+  st.routes.forEach(r=>{ if(!r.active||r.freq<=0) return; const sector=st.base+r.dest; const conf=configName(r.aircraft,r.configIdx);
+    const seats=configSeats(r.aircraft,conf); const hasPremium=(seats.F||0)+(seats.J||0)>0;
+    // config coherence
+    if(m.key==='lcc' && hasPremium){ const prem=(seats.F||0)+(seats.J||0);
+      add('config'+r.dest, seats.F? 10:6, `${r.dest}: a low-cost carrier flying a ${conf} layout (${prem} premium seats) carries cabin crew and lounge expectations its fares cannot fund. Dense economy is the model.`); }
+    if(m.key==='fsnc' && !hasPremium){ add('config'+r.dest, 8, `${r.dest}: an all-economy ${conf} layout gives a network carrier no Business cabin to sell — the premium yield is the whole point of the model.`); }
+    // fare coherence per cabin
+    CABINS.forEach(cab=>{ const band=m.fareBand[cab]; const carried=(seats[cab]||0)>0; if(!carried) return;
+      const mk=marketFare(sector,cab); if(!mk) return; const ratio=r.fares[cab]/mk;
+      if(cab==='Y'){ if(m.key==='lcc' && ratio>band[1]) add('fareY'+r.dest,6,`${r.dest}: economy fare at ${Math.round(ratio*100)}% of market is too high for a low-cost carrier — price-shoppers are the customer.`);
+        if(m.key==='fsnc' && ratio<band[0]) add('fareY'+r.dest,5,`${r.dest}: economy priced ${Math.round(ratio*100)}% of market undercuts your own premium positioning.`); }
+      if((cab==='J'||cab==='F')){ if(m.key==='fsnc' && ratio<band[0]) add('fare'+cab+r.dest,5,`${r.dest}: ${cab==='F'?'First':'Business'} fare at ${Math.round(ratio*100)}% of market dilutes premium yield — hard to reverse.`);
+        if(m.key==='lcc') add('fare'+cab+r.dest,4,`${r.dest}: selling a ${cab==='F'?'First':'Business'} cabin at all is off-model for a low-cost carrier.`); }
+    });
+    // range
+    if(AC[r.aircraft].range < routeInfo(sector).dist) add('range'+r.dest, 0, ''); // handled in sim, no coherence pts
+  });
+  const total=v.filter(x=>x.pts>0).reduce((s,x)=>s+x.pts,0);
+  return { score:Math.max(0,100-total), violations:v.filter(x=>x.pts>0) };
+}
+
+/* ===================== SIMULATION ===================== */
+function simulateRoute(st, r, ctx){
+  const m=MODELS[st.model]; const ac=AC[r.aircraft]; const sector=st.base+r.dest;
+  const info=routeInfo(sector); const dist=info.dist;
+  const conf=configName(r.aircraft,r.configIdx); const seats=configSeats(r.aircraft,conf);
+  const cabinCrew=configCrew(r.aircraft,conf);
+  const freq=r.active?r.freq:0;
+  const res={ dest:r.dest, sector, aircraft:ac, acType:r.aircraft, conf, seats, freq, dist,
+    departures:0, blockHrs:0, aircraftEq:0, lease:0, rangeFail:false,
+    pax:{F:0,J:0,Y:0}, cap:{F:0,J:0,Y:0}, demand:{F:0,J:0,Y:0}, spill:{F:0,J:0,Y:0},
+    ticketRev:0, ancillary:0, fuel:0, gallons:0, maint:0, crew:0, airport:0, ansp:0, env:0,
+    revenue:0, costs:0, profit:0, loadFactor:0, fares:{...r.fares} };
+  if(freq<=0){ return res; }
+  const departures=freq*2*CONFIG.weeksPerQuarter;      // both directions, 13 weeks
+  const bh=blockHours(sector,r.aircraft), fh=flightHours(sector,r.aircraft);
+  const blockTotal=bh*departures;
+  res.departures=departures; res.blockHrs=blockTotal;
+  const aircraftEq=(bh*freq*2)/(ac.maxUtil*7);          // aircraft needed at max utilisation
+  res.aircraftEq=aircraftEq;
+  res.lease=aircraftEq*ac.lease*3;                      // 3 months
+  if(ac.range < dist){ res.rangeFail=true; res.lease=aircraftEq*ac.lease*3; res.profit=-res.lease; return res; }
+
+  // ---- demand per cabin ----
+  const brand=ctx.brand;
+  CABINS.forEach(cab=>{
+    if((seats[cab]||0)===0) return;
+    const baseAnnual=annualBaseline(st.base,r.dest,cab);            // avg quarterly market pax (total)
+    const season=seasonFactor(st.base,r.dest,cab,st.quarter);
+    const shockSeg=ctx.fx[cab];
+    const rd=ctx.fx.routeDemand[r.dest]||1;
+    let marketPax=baseAnnual*season*shockSeg*rd;
+    // Our share of the market = capacity share re-weighted by relative fare attractiveness.
+    // A carrier priced below the competitor pulls a share above its raw seat proportion;
+    // priced above, it loses share. This lets a well-priced small operation still fill up
+    // even on a route where low-cost rivals fly far more seats.
+    const ourSeatsQ=(seats[cab]||0)*departures;
+    const compSeatsQ=competitorSeats(sector,cab,(st.quarter-1)%4);
+    const mk=marketFare(sector,cab); const compF=mk*ctx.compAdj(r.dest);
+    const ourF=(r.fares[cab]!=null?r.fares[cab]:mk);                    // actual fare charged (0 means free — earns no ticket revenue)
+    const ratioF=Math.max(1,ourF);                                      // floored only for the attractiveness ratio (avoids divide-by-zero)
+    const e=CONFIG.fareElastic[cab];
+    const attr = Math.pow(Math.max(0.25, compF/ratioF), e);   // <1 dearer, >1 cheaper than rivals
+    // attractiveness-weighted share: our (seats×attr) against competitors' seats
+    const weighted = ourSeatsQ*attr;
+    let share = weighted/Math.max(1, weighted + compSeatsQ);            // fraction of MARKET pax we win
+    // hub & alliance feed (premium cabins benefit most)
+    const isCore = CONFIG.coreRoutes.includes(r.dest);
+    const hub = st.network==='hub' ? m.hubFeed : 1;
+    const feedCab = cab==='Y' ? 1+(hub-1)*0.4 : hub;
+    const allFeed = st.alliance ? (isCore?m.allianceFeed.core:m.allianceFeed.other) : 0;
+    const allCab = cab==='Y' ? 1+allFeed*0.4 : 1+allFeed;
+    // low-cost pull: price-shoppers book direct with the carrier that is visibly cheapest (only when priced below market)
+    const pull = (m.key==='lcc' && cab==='Y' && ratioF<compF && st.network==='p2p') ? m.yPull : 1;
+    share = clamp(share*feedCab*allCab*brand*pull, 0, 1);
+    const demand = marketPax*share;
+    res.demand[cab]=demand;
+    res.cap[cab]=ourSeatsQ;
+    res.pax[cab]=Math.min(demand, ourSeatsQ);
+    res.spill[cab]=Math.max(0, demand-ourSeatsQ);
+    res.ticketRev += res.pax[cab]*ourF;
+  });
+  const paxTot=res.pax.F+res.pax.J+res.pax.Y, capTot=res.cap.F+res.cap.J+res.cap.Y;
+  res.loadFactor = capTot? paxTot/capTot : 0;
+
+  // ---- ancillary from services (charged services earn, free services cost) ----
+  let anc=0;
+  SVC.forEach(s=>{ const px=res.pax[s.cabin]||0; if(!px) return;
+    // LCC charges (earns rev - cost); FSNC bundles premium (free -> pays cost, no rev) selectively
+    if(m.ancillaryLean==='charge'){ if(s.avail==='CHARGED') anc += px*(s.rev - s.cost)/CABINS.length; }
+    else { // FSNC: free premium services cost money but support fares; charged in Y still earn
+      if(s.cabin!=='Y' && s.avail==='FREE') anc -= px*s.cost/CABINS.length;
+      else if(s.avail==='CHARGED') anc += px*(s.rev-s.cost)/CABINS.length; }
+  });
+  res.ancillary=anc;
+
+  // ---- costs (real build-up) ----
+  res.gallons = ac.fuelburn*fh*departures;               // fuel burn (kg/units) per flight hour × FH × departures
+  res.fuel = res.gallons*ctx.fuelPrice;
+  res.env = res.gallons*ctx.carbon;
+  const cycles=departures;
+  res.maint = (ac.mxFH*fh*departures) + (ac.mxBH*bh*departures) + (ac.mxCycle*cycles) + (ac.fixMx*aircraftEq*3);
+  res.crew = (ac.crewCockpit*2 + ac.crewCabin*cabinCrew)*blockTotal/10;  // ASSUMPTION crew cost scales with block hours (rates are monthly-ish; /10 calibration)
+  res.crew *= ctx.fleetMult*ctx.ineff;
+  res.maint *= ctx.ineff;
+  // airport: landing (unit fee × MTOW) + handling, both ends, per departure
+  const apCost=(apt)=>{ const t=APC[apt] && APC[apt][r.aircraft]; if(!t) return {landing:10,handling:1000}; return t; };
+  const baseAp=apCost(st.base), destAp=apCost(r.dest);
+  const landing=(baseAp.landing+destAp.landing)*ac.mtow* (departures/2);   // ASSUMPTION: unit fee × MTOW per landing
+  const handling=(baseAp.handling+destAp.handling)*(departures/2);
+  res.airport=landing+handling;
+  res.ansp=info.ansp*(dist/100)*departures;               // ASSUMPTION ANSP factor × distance
+  res.insurance=ac.insurance*aircraftEq*3;
+
+  res.revenue=res.ticketRev+res.ancillary;
+  res.costs=res.fuel+res.lease+res.maint+res.crew+res.airport+res.ansp+res.env+res.insurance;
+  res.profit=res.revenue-res.costs;
+  // unit metrics (the language of airline economics): ASK, RPK, CASK, RASK, yield
+  res.ask = capTot*dist; res.rpk = paxTot*dist;
+  res.cask = res.ask? res.costs/res.ask : 0;          // cost per available seat-km
+  res.rask = res.ask? res.revenue/res.ask : 0;        // revenue per available seat-km
+  res.yield_ = res.rpk? res.ticketRev/res.rpk : 0;    // ticket revenue per passenger-km
+  return res;
+}
+
+function simulateQuarter(st){
+  const m=MODELS[st.model]; const q=st.quarter;
+  const shock=activeShock(st,q); const fx=shockFx(shock);
+  const coh=assessCoherence(st); const gap=Math.max(0,(CONFIG.coherenceKnee-coh.score)/CONFIG.coherenceKnee);
+  const fams=activeFamilies(st);
+  const ctx={ fx, coh, brand:1-CONFIG.brandPenalty*gap, ineff:1+CONFIG.inefficiencyPenalty*gap,
+    fuelPrice:st.fuelPrice*fx.fuel, fleetMult:fleetMult(fams.length), carbon:carbonRate(q),
+    compAdj:(dest)=> (fx.comp[dest]||1) * (st.compIndex[dest]||1) };
+  const routes=st.routes.map(r=>simulateRoute(st,r,ctx));
+  const sum=k=>routes.reduce((s,x)=>s+(typeof x[k]==='number'?x[k]:0),0);
+  const sumc=k=>routes.reduce((s,x)=>s+(x.pax[k]||0),0);
+  const sumcap=k=>routes.reduce((s,x)=>s+(x.cap[k]||0),0);
+  const aircraftCount=Math.ceil(routes.reduce((s,x)=>s+x.aircraftEq,0));
+  const overhead=CONFIG.overheadFixed + CONFIG.overheadPerAircraft*aircraftCount;
+  const hubCost = st.network==='hub' ? CONFIG.hubCost : 0;       // ASSUMPTION hub complexity cost/quarter
+  const allianceCost = st.alliance ? CONFIG.allianceCost : 0;    // ASSUMPTION alliance fee/quarter
+  const revenue=sum('revenue');
+  const routeCosts=sum('costs')+routes.filter(x=>x.rangeFail).reduce((s,x)=>s+x.lease,0);
+  const costs=routeCosts+overhead+hubCost+allianceCost;
+  const profit=revenue-costs;
+  const paxTot=sumc('F')+sumc('J')+sumc('Y'), capTot=sumcap('F')+sumcap('J')+sumcap('Y');
+  const res={ quarter:q, shock, fx, coherence:coh.score, violations:coh.violations, routes,
+    fuelPrice:ctx.fuelPrice, carbon:ctx.carbon, families:fams, fleetMult:ctx.fleetMult, brand:ctx.brand, ineff:ctx.ineff,
+    aircraftCount, overhead, hubCost, allianceCost, revenue, costs, profit,
+    ticketRev:sum('ticketRev'), ancillary:sum('ancillary'), fuel:sum('fuel'), lease:sum('lease'),
+    maint:sum('maint'), crew:sum('crew'), airport:sum('airport'), ansp:sum('ansp'), env:sum('env'), insurance:sum('insurance'),
+    paxF:sumc('F'), paxJ:sumc('J'), paxY:sumc('Y'), pax:paxTot, cap:capTot,
+    spill: routes.reduce((s,x)=>s+x.spill.F+x.spill.J+x.spill.Y,0),
+    loadFactor: capTot?paxTot/capTot:0, cashBefore:st.cash, network:st.network, alliance:st.alliance,
+    ask:sum('ask'), rpk:sum('rpk'),
+    decisions: st.routes.map(r=>({dest:r.dest,active:r.active,aircraft:r.aircraft,conf:configName(r.aircraft,r.configIdx),freq:r.freq,fares:{...r.fares}})) };
+  res.cashAfter=st.cash+profit;
+  res.cask = res.ask? res.costs/res.ask : 0; res.rask = res.ask? res.revenue/res.ask : 0; res.yield_ = res.rpk? res.ticketRev/res.rpk : 0;
+  res.log=buildLog(st,res);
+  // advance
+  st.cash=res.cashAfter; st.history.push(res); st.quarter+=1;
+  const walk=1+(st.rng()*2-1)*CONFIG.fuelWalk; st.fuelPrice=clamp(st.fuelPrice*walk,CONFIG.fuelMin,CONFIG.fuelMax);
+  rollComp(st);
+  if(st.cash<CONFIG.bankruptcy){ st.over=true; st.overReason='bankrupt'; }
+  else if(st.quarter>CONFIG.quarters){ st.over=true; st.overReason='complete'; }
+  return res;
+}
+
+/* ===================== FEEDBACK ===================== */
+const art=m=>(m.key==='lcc'?'an ':'a ')+m.short;
+const Art=m=>(m.key==='lcc'?'An ':'A ')+m.short;
+const fmtM=x=>(x<0?'\u2212':'')+'\u20ac'+(Math.abs(x)/1e6).toFixed(1)+'M';
+const fmtK=x=>(x<0?'\u2212':'')+'\u20ac'+Math.round(Math.abs(x)/1000).toLocaleString()+'k';
+const fmtN=x=>Math.round(x).toLocaleString();
+const pct=x=>Math.round(x*100)+'%';
+
+function buildLog(st,res){
+  const m=MODELS[st.model]; const L=[]; const push=(t,ti,tx)=>L.push({type:t,title:ti,text:tx}); const shock=res.shock;
+  const ok=res.profit>=0;
+  push(ok?'good':'bad', ok?`Quarter ${res.quarter}: profit of ${fmtM(res.profit)}`:`Quarter ${res.quarter}: loss of ${fmtM(Math.abs(res.profit))}`,
+    `Revenue ${fmtM(res.revenue)} against costs of ${fmtM(res.costs)}. Load factor ${pct(res.loadFactor)} on ${fmtN(res.pax)} passengers (${fmtN(res.paxJ+res.paxF)} premium). Cash now ${fmtM(res.cashAfter)}.`);
+  if(shock){ const def=shock.def; const prev=st.history[st.history.length-1];
+    let vd='';
+    if(def.key==='fuel'){ const fs=res.fuel/Math.max(1,res.costs); vd=`Fuel was ${pct(fs)} of costs this quarter. `; const freqNow=st.routes.reduce((s,r)=>s+(r.active?r.freq:0),0); const freqPrev=prev?prev.decisions.reduce((s,d)=>s+(d.active?d.freq:0),0):freqNow; vd+= freqNow<freqPrev?'You trimmed frequency, the right reflex when marginal flights stop covering fuel.':'You held frequency; check that thin routes still cover their fuel.'; }
+    else if(def.key==='recession'){ const ps=res.pax?(res.paxJ+res.paxF)/res.pax:0; vd=`Premium was ${pct(ps)} of passengers. `; vd+= m.key==='fsnc'? (res.routes.some(x=>x.fares.Y<marketFare(x.sector,'Y')*0.8)?'You cut economy fares hard — that fills seats now but dilutes the premium brand.':'You held premium pricing discipline, which the board prefers to chasing cheap volume.') : (res.loadFactor>0.8?'Strong loads — the trade-down effect favours a low-cost model.':'Loads are soft even in a downturn that should suit you; check fares and capacity.'); }
+    else if(def.key==='geo'){ const cdg=res.routes.find(x=>x.dest==='CDG'); vd= (!cdg||cdg.freq===0)?'Paris suspended for the quarter — the cleanest way to dodge the strike.':`You kept Paris at ${cdg.freq}/week for a ${pct(cdg.loadFactor)} load and ${fmtM(cdg.profit)}.`; }
+    else if(def.key==='pricewar'){ const hit=res.routes.filter(x=>x.dest==='ALC'||x.dest==='LHR'); const above=hit.filter(x=>x.freq>0 && x.fares.Y>marketFare(x.sector,"Y")*ctx0(st,x.dest)*1.05); vd= above.length?`On ${above.map(x=>x.dest).join(' & ')} you stayed above the rival and lost economy share.`:'You matched or beat the rival on the contested routes.'; if(m.key==='fsnc'&&!above.length) vd+=' A network carrier chasing low-cost fares cannot win on cost — compete on product instead.'; }
+    else if(def.key==='pandemic'){ const capCut=prev?1-res.cap/Math.max(1,prev.cap):0; vd= capCut>0.3?`You cut capacity ${pct(capCut)} and protected cash.`:'You kept most capacity flying into a demand collapse — empty seats still pay for fuel, crews and airport fees.'; }
+    push('shock',`${def.name} — how you handled it`,`${vd} ${def.coach[m.key]}`);
+  }
+  const s=res.coherence;
+  if(s>=90) push('good','A coherent strategy',`Coherence ${s}/100. Network, fleet, cabins, alliance and pricing all point the same way.`);
+  else if(s>=75) push('info','Mostly on model',`Coherence ${s}/100. A few choices pull against your ${m.short} model. Below 75 the market starts to punish the mix.`);
+  else push('bad','Stuck in the middle',`Coherence ${s}/100. Neither cheap enough for price-shoppers nor premium enough for business travellers. Demand cut ${pct(1-res.brand)} and unit costs inflated ${pct(res.ineff-1)} this quarter.`);
+  res.violations.forEach(v=>push('warn','Off-model choice',v.text+` (\u2212${v.pts})`));
+  const nf=res.families.length;
+  if(nf===1) push('good','Single-fleet economics',`One aircraft family keeps crew, spares and maintenance costs low.`);
+  else if(nf>=3) push('bad','Fragmented fleet',`${nf} aircraft families added ${pct(res.fleetMult-1)} to crew & maintenance cost.`);
+  res.routes.forEach(x=>{ if(x.freq===0){ if(x.dest) push('info',`${x.dest}: not served`,'No flying, no revenue, no cost. A legitimate move in a downturn, but slots and customers drift to rivals.'); return; }
+    if(x.rangeFail){ push('bad',`${x.dest}: range failure`,`${x.aircraft.name} (${fmtN(x.aircraft.range)} km) cannot fly the ${fmtN(x.dist)} km sector to ${x.dest}. Route earned nothing and still paid ${fmtM(x.lease)} of lease. Check range before scheduling.`); return; }
+    const spillTot=x.spill.F+x.spill.J+x.spill.Y, demTot=x.demand.F+x.demand.J+x.demand.Y;
+    if(demTot>0 && spillTot/demTot>0.08) push('warn',`${x.dest}: spill — ${fmtN(spillTot)} passengers turned away`,`Demand exceeded your seats by ${pct(spillTot/demTot)}. Add frequency, up-gauge, or a denser config to capture it.`);
+    if(x.loadFactor<0.6) push('warn',`${x.dest}: load factor only ${pct(x.loadFactor)}`,`Too much capacity for the demand at this fare. Empty seats still burn fuel and pay landing fees.`);
+    else if(x.loadFactor>0.9 && spillTot/Math.max(1,demTot)<=0.08) push('good',`${x.dest}: ${pct(x.loadFactor)} load factor`,`Capacity well matched to demand.`);
+    if(x.profit<0){ const parts=[['fuel',x.fuel],['lease',x.lease],['maintenance',x.maint],['crew',x.crew],['airport',x.airport],['ANSP',x.ansp],['environmental',x.env]].sort((a,b)=>b[1]-a[1]); push('bad',`${x.dest}: lost ${fmtM(Math.abs(x.profit))}`,`Revenue ${fmtK(x.revenue/x.departures)}/departure vs cost ${fmtK(x.costs/x.departures)}. Biggest lines: ${parts[0][0]} ${fmtM(parts[0][1])}, ${parts[1][0]} ${fmtM(parts[1][1])}. ${x.loadFactor>0.85?'The aircraft are full, so fares are too low for this cost base.':'Fill the aircraft or fly fewer of them.'}`); }
+  });
+  if(st.network==='hub'&&m.key==='fsnc') push('good','Hub feed working',`Connecting traffic lifted premium demand on the core routes, against ${fmtM(res.hubCost)} of hub complexity cost.`);
+  if(st.network==='hub'&&m.key==='lcc') push('warn','Hub complexity without hub revenue',`The hub cost ${fmtM(res.hubCost)} but a low-cost product captured little connecting feed. Point-to-point keeps aircraft flying.`);
+  if(st.alliance&&m.key==='fsnc') push('good','Alliance feed',`Partners fed premium traffic on Geneva\u2013London and Geneva\u2013Paris against a ${fmtM(res.allianceCost)} fee.`);
+  if(st.alliance&&m.key==='lcc') push('warn','Alliance fee, little feed',`${fmtM(res.allianceCost)} bought feed a low-cost product cannot use.`);
+  const envShare=res.env/Math.max(1,res.costs);
+  if(res.quarter>=4||envShare>0.04) push(envShare>0.06?'warn':'info',`Environmental charge now \u20ac${res.carbon.toFixed(3)}/unit`,`Environmental charges were ${fmtM(res.env)} (${pct(envShare)} of costs) and rise every quarter. Fuel-efficient types (A220, E190-E2, A320neo) are the durable hedge.`);
+  if(res.cashAfter<8e6&&res.cashAfter>=0) push('bad','Cash is getting thin',`${fmtM(res.cashAfter)} left. Airlines fail on cash, not on paper profit.`);
+  if(res.cashAfter<0) push('bad','Negative cash',`You are ${fmtM(Math.abs(res.cashAfter))} overdrawn. Below \u2212\u20ac12M the board hands the keys to the lenders.`);
+  return L;
+}
+function ctx0(st,dest){ const sh=activeShock(st,st.quarter); const fx=shockFx(sh); return (fx.comp[dest]||1)*(st.compIndex[dest]||1); }
+
+/* ===================== BOARD REVIEW ===================== */
+function boardReview(st){
+  const m=MODELS[st.model]; const H=st.history; const n=H.length;
+  const totalProfit=H.reduce((s,h)=>s+h.profit,0);
+  const avgCoh=H.reduce((s,h)=>s+h.coherence,0)/n;
+  const avgLF=H.reduce((s,h)=>s+h.loadFactor,0)/n;
+  const paxTot=H.reduce((s,h)=>s+h.pax,0);
+  const premTot=H.reduce((s,h)=>s+h.paxJ+h.paxF,0);
+  const rangeFails=H.reduce((s,h)=>s+h.routes.filter(x=>x.rangeFail).length,0);
+  const spillTot=H.reduce((s,h)=>s+h.spill,0);
+  const shockQ=H.filter(h=>h.shock), calmQ=H.filter(h=>!h.shock);
+  const shockAvg=shockQ.length?shockQ.reduce((s,h)=>s+h.profit,0)/shockQ.length:0;
+  const calmAvg=calmQ.length?calmQ.reduce((s,h)=>s+h.profit,0)/calmQ.length:0;
+  const destTotals=CONFIG.destinations.map(d=>({dest:d,profit:H.reduce((s,h)=>{const r=h.routes.find(x=>x.dest===d);return s+(r?r.profit:0);},0)}));
+  const best=[...destTotals].sort((a,b)=>b.profit-a.profit)[0], worst=[...destTotals].sort((a,b)=>a.profit-b.profit)[0];
+  const maxFam=Math.max(...H.map(h=>h.families.length));
+  const violCounts={}; H.forEach(h=>h.violations.forEach(v=>{const k=v.key.replace(/[A-Z]{3}$/,'');violCounts[k]=(violCounts[k]||0)+1;}));
+  const topViol=Object.entries(violCounts).sort((a,b)=>b[1]-a[1])[0];
+  const roc=totalProfit/CONFIG.startCash;
+  let fin=clamp(50+roc*30,0,100); let score=0.6*fin+0.4*avgCoh;   // 30: calibrated for an 8-quarter run so that an A needs both coherence and ~€30M of profit
+  if(st.overReason==='bankrupt') score=Math.min(score,45);
+  const grade=score>=88?'A':score>=76?'B':score>=62?'C':score>=48?'D':'F';
+  const title={A:'A model the board understands — and the market rewards',B:'A sound airline with a few contradictions',C:'Profitable moments, but the strategy wandered',D:'The board is asking what this airline is for',F:st.overReason==='bankrupt'?'Insolvent. The lenders now own the airline.':'Neither cheap nor premium, and the market noticed'}[grade];
+  const sec=[];
+  sec.push({type:'info',title:'Financial record',text:`${n} quarters from Geneva. Cumulative ${totalProfit>=0?'profit':'loss'} of ${fmtM(Math.abs(totalProfit))} on ${fmtN(paxTot)} passengers (${fmtN(premTot)} premium); final cash ${fmtM(st.cash)} against ${fmtM(CONFIG.startCash)} at launch. Average load factor ${pct(avgLF)}. Best route: ${best.dest} (${fmtM(best.profit)}). Worst: ${worst.dest} (${fmtM(worst.profit)}).`});
+  sec.push({type:avgCoh>=85?'good':avgCoh>=70?'warn':'bad',title:`Strategic coherence averaged ${Math.round(avgCoh)}/100`,text: avgCoh>=85?`You chose the ${m.short} model and ran it as one — cabins, network, alliance and pricing reinforced each other.`: avgCoh>=70?`Mostly on model, but ${topViol?`the recurring contradiction was ${describeViol(topViol[0])} (${topViol[1]} quarters)`:'contradictions crept in'}.`:`The airline spent much of its life stuck in the middle.${topViol?` The most persistent contradiction was ${describeViol(topViol[0])}, in ${topViol[1]} of ${n} quarters.`:''} Porter's warning holds in aviation: cost leadership and differentiation need different fleets, cabins and customers.`});
+  sec.push({type:shockAvg>=calmAvg*0.5?'good':'warn',title:`Shock handling: ${shockQ.length} shock quarter${shockQ.length!==1?'s':''}`,text:(shockQ.length?`Average profit in shock quarters ${fmtM(shockAvg)} vs ${fmtM(calmAvg)} in calm ones. ${[...new Set(shockQ.map(h=>h.shock.def.name))].join(', ')}. `:'No shocks landed. ')+(shockAvg>=calmAvg*0.5?'You adapted rather than set-and-forget.':'Set-and-forget cost you — a well-run carrier re-plans every quarter a shock lands.')});
+  sec.push({type:maxFam<=m.maxFamilies?'good':'warn',title:'Fleet',text:`At most ${maxFam} aircraft famil${maxFam===1?'y':'ies'} against a ${m.short} tolerance of ${m.maxFamilies}. ${rangeFails?`${rangeFails} route-quarter(s) lost to range failures.`:'No range failures.'} Spill over the run: ${fmtN(spillTot)} passengers turned away.`});
+  sec.push({type:'info',title:'What the board would say to the next CEO',text:adviceFor(m,avgCoh,totalProfit,st)});
+  return {grade,score,title,sections:sec,totalProfit,avgCoh,avgLF,paxTot,premTot};
+}
+function describeViol(k){ return {network:'the network structure',alliance:'the alliance stance',fleet:'fleet fragmentation',config:'off-model cabin layouts',fareY:'economy pricing',fareJ:'business pricing',fareF:'first pricing'}[k]||'an off-model choice'; }
+function adviceFor(m,coh,profit){ const base=m.key==='lcc'?'A low-cost carrier wins on cost per seat: one fleet family, dense economy cabins, point-to-point, fares below the network carriers, and ancillaries doing the rest. Premium cabins, lounges, alliances and hubs are all cost the model cannot recover.':'A network carrier sells a premium product and a connecting network. It needs the hub, the alliance, multi-cabin aircraft and fares that reflect the cost of providing them. The trap is chasing low-cost economy fares in a downturn — it fills seats today and destroys the yield the model depends on.'; const tail=coh>=85&&profit>0?' You did this.':profit>0?' You made money despite the contradictions; imagine the result without them.':' The losses trace to choices that fought the model. Fix the fit first; the numbers follow.'; return base+tail; }
+
+
+/* =====================================================================
+   INSTRUCTIONAL CONTENT — business-model briefings and glossary
+   Rendered on the start screen (before choosing a model), inside the game
+   (term tooltips + Glossary panel) and appended to the HTML report export.
+   ===================================================================== */
+const MODEL_BRIEF = {
+  intro: {
+    title: 'What is an airline business model?',
+    paras: [
+      'A business model is the logic by which an airline creates value for a chosen customer and captures some of that value as profit. It is not a slogan; it is a set of choices that must fit together: who the customer is, what product they are sold, how the network is shaped, which aircraft fly it, how seats are priced and sold, and what the cost base must therefore look like.',
+      'Two archetypes dominate short-haul Europe. The <b>Low-Cost Carrier (LCC)</b> pursues <em>cost leadership</em>: it wins price-sensitive leisure and visiting-friends-and-relatives passengers by having the lowest cost per seat in the market, then adds ancillary revenue on top. The <b>Full-Service Network Carrier (FSNC)</b> pursues <em>differentiation</em>: it wins time-sensitive, higher-yield business travellers with a premium product, a connecting network and alliance reach, and prices to recover the cost of providing them.',
+      'Michael Porter\u2019s warning about generic strategies applies with unusual force in aviation. A carrier that mixes the two \u2014 dense cabins but a hub; low fares but an alliance fee; a Business cabin but no feed to fill it \u2014 ends up <b>stuck in the middle</b>: neither cheap enough to win the price-shopper nor good enough to win the corporate account. Its costs are higher than the LCC\u2019s and its yields lower than the FSNC\u2019s. This simulator measures that fit every quarter as <b>strategic coherence</b>.',
+      'Geneva is chosen as the base deliberately. In reality it hosts both archetypes at scale: a Star Alliance network carrier operating multi-cabin aircraft into its hubs, and the largest base of a pan-European low-cost carrier outside the UK. Both make money there \u2014 by doing completely different things. Your job is to pick one logic and run it consistently.'
+    ]
+  },
+  dimensions: [
+    { dim:'Target customer', lcc:'Price-sensitive leisure and VFR travellers; small-business travellers who pay their own way. Willing to trade comfort and convenience for price.', fsnc:'Time-sensitive corporate and premium leisure travellers; connecting passengers. Willing to pay for schedule, comfort, flexibility and network reach.' },
+    { dim:'Value proposition', lcc:'The lowest fare in the market, reliably. Everything else is optional and charged for.', fsnc:'A premium, bundled product: lounges, flexible tickets, tiered cabins, frequent-flyer benefits and one-stop access to a global network.' },
+    { dim:'Network', lcc:'Point-to-point. Aircraft fly out and back with 25-minute turns. No connections, no banked schedules, no misconnect costs.', fsnc:'Hub-and-spoke. Waves of arrivals feed waves of departures; a single spoke sells hundreds of city-pairs. Complex, costly, but the source of premium and connecting demand.' },
+    { dim:'Fleet', lcc:'One aircraft family (ideally one type), new and fuel-efficient, flown 11\u201313 hours a day. Commonality cuts crew, training, spares and maintenance cost.', fsnc:'Several families sized to different markets (regional jets to widebodies). Flexibility for the network, at the price of separate crew pools and maintenance lines.' },
+    { dim:'Cabin and product', lcc:'Single-class, high-density cabin (28\u201329-inch pitch). No lounges, no free catering. Product is the seat and the fare.', fsnc:'Two or three cabins with a real Business (and often First) product: lie-flat or wide seats, lounges, catering, priority handling.' },
+    { dim:'Pricing and revenue', lcc:'Fares deliberately below the network carriers; one-way, non-refundable. Ancillaries (bags, seats, priority, food) are 25\u201340% of revenue.', fsnc:'Fares at or above market with fare families and flexibility premiums. Premium cabins are a small share of passengers but a large share of revenue.' },
+    { dim:'Distribution', lcc:'Direct: own website and app. No travel-agent commissions, no global distribution system fees.', fsnc:'Multi-channel: corporate contracts, travel-management companies, alliances and interline agreements, plus direct.' },
+    { dim:'Cost structure', lcc:'Lowest cost per available seat-kilometre (CASK) in the market: dense cabins, high utilisation, secondary or efficient airports, lean overhead.', fsnc:'Higher CASK, accepted because revenue per seat-kilometre (RASK) is higher. Hub, alliance, premium service and fleet complexity are all deliberate costs.' },
+    { dim:'Key metrics', lcc:'CASK, aircraft utilisation, load factor, ancillary revenue per passenger.', fsnc:'RASK, yield, premium load factor, connecting share, corporate share.' },
+    { dim:'Real-world examples', lcc:'Ryanair, easyJet, Wizz Air, Vueling.', fsnc:'Swiss, Lufthansa, British Airways, Air France\u2013KLM.' },
+    { dim:'Biggest risk', lcc:'Cost creep: adding premium products, extra fleet types or hub complexity that the fare cannot fund.', fsnc:'Yield dilution: chasing low-cost economy fares in a downturn, which fills seats today and destroys the premium brand for years.' }
+  ],
+  hybrid: {
+    title: 'What about hybrids?',
+    text: 'Real carriers do blur the lines: some low-cost carriers now sell a bundled fare with a free bag, and some network carriers fly dense single-class aircraft on leisure routes. But successful hybrids are deliberate and disciplined \u2014 they add one or two features whose extra revenue clearly exceeds their extra cost, and they keep the rest of the system intact. The failures are carriers that drifted into the middle without meaning to. In this simulator, every off-model choice is flagged with a penalty. You are allowed to make it; you are not allowed to make it without knowing.'
+  },
+  coherence: {
+    title: 'How the simulator scores coherence',
+    text: 'Coherence starts at 100 each quarter and loses points for each choice that contradicts your model: network shape, alliance stance, extra fleet families, off-model cabin layouts and off-band fares. Below 75, the market starts to punish the mix: demand shrinks (customers cannot tell what you are) and unit costs inflate (complexity). Your final grade is 60% financial return and 40% average coherence \u2014 so an airline that made money by luck while contradicting itself will not get an A.'
+  }
+};
+
+const GLOSSARY = [
+  ['Business model','The logic by which an airline chooses a customer, designs a product and network for them, and structures its costs to make a profit from it.'],
+  ['LCC (Low-Cost Carrier)','An airline pursuing cost leadership: single-class dense cabins, one fleet family, point-to-point flying, direct distribution, low base fares and charged ancillaries. Examples: Ryanair, easyJet, Wizz Air.'],
+  ['FSNC (Full-Service Network Carrier)','An airline pursuing differentiation: multi-cabin aircraft, hub-and-spoke network, alliance membership, bundled premium service and fares that recover the cost of providing them. Examples: Swiss, British Airways, Lufthansa.'],
+  ['Strategic coherence','How consistently an airline\u2019s choices (network, fleet, cabins, alliance, pricing) reinforce its chosen business model. Scored 0\u2013100 each quarter in this simulator.'],
+  ['Stuck in the middle','Porter\u2019s term for a firm that pursues neither cost leadership nor differentiation clearly, ending up with the costs of one and the revenues of the other.'],
+  ['Point-to-point','A network in which aircraft fly directly between city pairs and passengers do not connect. Simple, high utilisation, no connection revenue.'],
+  ['Hub-and-spoke','A network built around a hub airport where banks of arriving flights connect to banks of departing flights, multiplying the city-pairs sold. Generates connecting (feed) demand at the price of complexity.'],
+  ['Feed','Connecting passengers delivered to a route by a hub or by alliance partners, over and above local point-to-point demand.'],
+  ['Alliance','A marketing and operational partnership (e.g. Star Alliance, oneworld, SkyTeam) in which member airlines share codes, lounges, frequent-flyer programmes and connecting traffic. Membership costs money and only pays off for a carrier whose passengers connect.'],
+  ['Interlining','Selling a single ticket across two or more airlines\u2019 flights. Requires agreements and systems that low-cost carriers typically avoid.'],
+  ['Fleet family / commonality','A group of aircraft types sharing a cockpit rating, spares and maintenance procedures (e.g. the A320 family). Each additional family adds its own crews, training, spares and engineering line.'],
+  ['Cabin configuration','The layout of seats by class on an aircraft (e.g. F / J / Y or all-economy dense). Denser layouts lower cost per seat; premium layouts raise revenue per passenger.'],
+  ['F / J / Y','Industry booking codes for First, Business and Economy cabins respectively.'],
+  ['Ancillary revenue','Revenue beyond the base ticket: baggage fees, seat selection, priority boarding, food, wi-fi. A core part of the low-cost model, where it can exceed 30% of total revenue.'],
+  ['Load factor','Passengers carried divided by seats offered, expressed as a percentage. High load factor is necessary but not sufficient for profit \u2014 a full aircraft at the wrong fare still loses money.'],
+  ['Spill','Demand that exceeded the seats offered and was therefore turned away. Persistent spill signals under-capacity or under-pricing.'],
+  ['Yield','Average ticket revenue per passenger-kilometre (RPK). The classic measure of pricing power; network carriers manage yield, low-cost carriers manage cost.'],
+  ['ASK (Available Seat-Kilometres)','Seats offered multiplied by distance flown. The standard measure of airline capacity.'],
+  ['RPK (Revenue Passenger-Kilometres)','Paying passengers multiplied by distance flown. The standard measure of traffic sold.'],
+  ['CASK','Cost per Available Seat-Kilometre: total operating cost divided by ASK. The single most-watched number in the low-cost model.'],
+  ['RASK','Revenue per Available Seat-Kilometre: total revenue divided by ASK. An airline is profitable when RASK exceeds CASK.'],
+  ['Break-even load factor','The load factor at which revenue equals cost for a given fare and cost base. Lower is safer.'],
+  ['Block hours','Time from the aircraft leaving the departure gate to arriving at the destination gate. Crew and some maintenance costs are driven by block hours.'],
+  ['Flight hours','Airborne time (take-off to landing); shorter than block hours. Fuel burn and engine maintenance are driven by flight hours.'],
+  ['Utilisation','Block hours flown per aircraft per day. Low-cost carriers push utilisation to 11\u201313 hours to spread fixed lease and ownership cost over more flights.'],
+  ['Aircraft lease','Monthly rental paid for an aircraft whether or not it flies. A parked aircraft still costs its lease, which is why capacity cuts save fuel and airport fees but not ownership cost.'],
+  ['Turnaround','Time between an aircraft arriving and departing again. 25-minute turns are the low-cost benchmark; hubs need longer turns to hold for connections.'],
+  ['MTOW','Maximum Take-Off Weight. Airport landing charges in this dataset are levied per tonne of MTOW, so heavier aircraft pay more per landing.'],
+  ['ANSP charges','Fees paid to Air Navigation Service Providers (air-traffic control) for using airspace, based on distance flown and aircraft weight.'],
+  ['Airport charges','Landing fees and ground-handling fees paid at both ends of each flight; vary by airport and aircraft type.'],
+  ['Environmental charge','A cost per unit of fuel burned representing carbon pricing (e.g. the EU Emissions Trading System). It rises every quarter in this simulator, rewarding fuel-efficient fleets.'],
+  ['Price elasticity','How strongly demand responds to price. Economy demand is highly elastic (cheaper fares win share quickly); First and Business demand is much less elastic.'],
+  ['Seasonality','The regular quarterly pattern of demand \u2014 leisure routes peak in summer, business routes are flatter. Derived here from the real 2023 quarterly data.'],
+  ['Market fare','The average fare competitors charge in each cabin on a route, drawn from the dataset. Pricing well above it loses share; well below it dilutes yield.'],
+  ['Cost leadership','Porter\u2019s generic strategy of being the lowest-cost producer in an industry and competing on price.'],
+  ['Differentiation','Porter\u2019s generic strategy of offering a product customers value more highly, and pricing to capture that value.'],
+  ['Scenario seed','A word or number that fixes the random elements of the simulation (shock timing, fuel drift, competitor fare noise). Everyone using the same seed faces an identical scenario, which makes results comparable.'],
+  ['Range','The maximum distance an aircraft type can fly with a full payload. Scheduling a type beyond its range earns nothing and still pays the lease.'],
+  ['Hub complexity cost','The fixed quarterly cost of running banked schedules, connection handling and slot holding at a hub. Modelled here as a flat charge that only a network carrier can recover.']
+];
+
+// expose ctx for pricewar log (module scope var referenced in buildLog)
+if(typeof module!=='undefined') module.exports={CONFIG,MODELS,GLOSSARY,MODEL_BRIEF,scheduleShocks,mulberry32,hashSeed,SHOCKS,AC,CFG,DATA,newGame,simulateQuarter,assessCoherence,boardReview,activeShock,shockFx,configList,configName,configSeats,totalSeats,marketFare,routeInfo,demandKey,annualBaseline,blockHours};
+</script>
+<script>
+'use strict';
+/* =====================================================================
+   UI
+   ===================================================================== */
+let G=null, selectedModel=null, lastResult=null;
+const $=id=>document.getElementById(id);
+const el=(t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+
+/* ---------- Start ---------- */
+function renderStart(){
+  const wrap=$('modelCards'); wrap.innerHTML='';
+  ['lcc','fsnc'].forEach(k=>{ const m=MODELS[k];
+    const c=el('button','mcard'); c.type='button'; c.setAttribute('aria-pressed','false');
+    const acEx = k==='lcc'?'Dense economy (Y / Y-dense)':'Multi-cabin (J / Y; First optional)';
+    c.innerHTML=`<div class="tag">${m.short}</div><h3>${m.name}</h3><div class="why">${m.tagline}</div>
+      <div class="spec">
+        <span>Cabins</span><span>${acEx}</span>
+        <span>Network</span><span>${m.network==='hub'?'Hub-and-spoke':'Point-to-point'}</span>
+        <span>Alliance</span><span>${m.alliance?'Member':'Independent'}</span>
+        <span>Fleet families</span><span>${m.maxFamilies}</span>
+        <span>Services</span><span>${m.ancillaryLean==='charge'?'Charged (ancillary)':'Bundled (premium)'}</span>
+      </div>
+      <div class="fits"><b>What fits:</b> ${m.fits}</div>`;
+    c.addEventListener('click',()=>{ selectedModel=k; [...wrap.children].forEach(x=>{x.classList.remove('selected');x.setAttribute('aria-pressed','false');}); c.classList.add('selected'); c.setAttribute('aria-pressed','true'); validateLaunch(); });
+    wrap.appendChild(c);
+  });
+  $('seed').addEventListener('input',validateLaunch);
+  $('launchBtn').onclick=()=>{ const seed=$('seed').value.trim(); if(!selectedModel||!seed) return; startGame(selectedModel,seed,$('carrierName').value.trim()); };
+  renderBrief(); renderGlossary('glossary'); renderGlossary('glossary2'); initTips();
+  $('glossSearch').addEventListener('input',e=>{ const q=e.target.value.trim().toLowerCase(); [...$('glossary').children].forEach(d=>{ d.style.display=(!q||d.textContent.toLowerCase().includes(q))?'':'none'; }); });
+  validateLaunch();
+}
+
+/* ---------- Instructional: briefing, glossary, term tooltips ---------- */
+const T=(label,term)=>`<span class="term" data-term="${term||label}">${label}</span>`;
+function briefHTML(open){
+  const B=MODEL_BRIEF;
+  return `<details class="brief"${open?' open':''}><summary>${B.intro.title} <span class="hint">read this before choosing — five minutes</span></summary><div class="inner">
+    ${B.intro.paras.map(p=>`<p>${p}</p>`).join('')}
+    <h3>The two archetypes, dimension by dimension</h3>
+    <table class="cmp"><tr><th>Dimension</th><th>Low-Cost Carrier (LCC)</th><th>Full-Service Network Carrier (FSNC)</th></tr>
+    ${B.dimensions.map(d=>`<tr><td>${d.dim}</td><td>${d.lcc}</td><td>${d.fsnc}</td></tr>`).join('')}</table>
+    <h3>${B.hybrid.title}</h3><p>${B.hybrid.text}</p>
+    <h3>${B.coherence.title}</h3><p>${B.coherence.text}</p>
+  </div></details>`;
+}
+function renderBrief(){ $('brief').innerHTML=briefHTML(true); }
+function glossaryHTML(){ return GLOSSARY.map(([t,d])=>`<div><dt>${t}</dt><dd>${d}</dd></div>`).join(''); }
+function renderGlossary(id){ const g=$(id); if(g) g.innerHTML=glossaryHTML(); }
+function findDef(term){ const k=term.toLowerCase(); let hit=GLOSSARY.find(([t])=>t.toLowerCase()===k); if(!hit) hit=GLOSSARY.find(([t])=>t.toLowerCase().startsWith(k)||k.startsWith(t.toLowerCase().split(' (')[0])); return hit; }
+function initTips(){
+  const tip=$('tip'); let active=null;
+  const show=(elm)=>{ const hit=findDef(elm.dataset.term||elm.textContent); if(!hit){ tip.classList.remove('show'); return; } tip.innerHTML=`<b>${hit[0]}</b>${hit[1]}`; tip.classList.add('show'); const r=elm.getBoundingClientRect(); const w=tip.offsetWidth||320, h=tip.offsetHeight||80; let x=r.left, y=r.bottom+8; if(x+w>window.innerWidth-12) x=window.innerWidth-w-12; if(y+h>window.innerHeight-12) y=r.top-h-8; tip.style.left=Math.max(8,x)+'px'; tip.style.top=Math.max(8,y)+'px'; active=elm; };
+  const hide=()=>{ tip.classList.remove('show'); active=null; };
+  document.addEventListener('mouseover',e=>{ const t=e.target.closest('.term'); if(t) show(t); });
+  document.addEventListener('mouseout',e=>{ const t=e.target.closest('.term'); if(t&&t===active) hide(); });
+  document.addEventListener('click',e=>{ const t=e.target.closest('.term'); if(t){ if(active===t) hide(); else show(t); } else hide(); });
+  document.addEventListener('scroll',hide,{passive:true});
+}
+function renderModelBrief(){
+  const m=MODELS[G.model]; const B=MODEL_BRIEF; const pick=k=>B.dimensions.find(d=>d.dim===k)[m.key];
+  $('mbrief').innerHTML=`<div class="plabel">Your model — ${m.name}</div>
+    <p style="margin:6px 0 0;max-width:80ch">${m.fits}</p>
+    <div class="grid2">
+      <div><b>Who you serve</b>${pick('Target customer')}</div>
+      <div><b>What you sell</b>${pick('Value proposition')}</div>
+      <div><b>How you make money</b>${pick('Pricing and revenue')}</div>
+      <div><b>The number to watch</b>${pick('Key metrics')}</div>
+      <div><b>The trap</b>${pick('Biggest risk')}</div>
+      <div><b>Real-world peers</b>${pick('Real-world examples')}</div>
+    </div>`;
+}
+function validateLaunch(){
+  const seed=$('seed').value.trim(); const ok=!!selectedModel && seed.length>0;
+  $('launchBtn').disabled=!ok;
+  $('seedHint').textContent = seed.length? '' : 'A seed is required — type any word or number. Share one seed across the class for an identical scenario.';
+  $('seedHint').className='seedhint'+(seed.length?'':' show');
+}
+
+function startGame(modelKey,seed,name){
+  G=newGame(modelKey,seed,name); lastResult=null;
+  $('start').classList.add('hidden'); $('end').classList.add('hidden'); $('game').classList.remove('hidden');
+  ['results','logSection','chartSection'].forEach(id=>$(id).classList.add('hidden'));
+  buildRoutes(); renderModelBrief(); $('runBtn').textContent='Run quarter'; $('runBtn').onclick=onRun; refreshAll(); window.scrollTo({top:0});
+}
+
+/* ---------- Header ---------- */
+function renderHeader(){
+  const m=MODELS[G.model]; $('hName').textContent=G.name; $('hModel').textContent=`${m.name} · base ${CONFIG.baseName} (${CONFIG.base}) · seed ${G.seed}`;
+  const q=Math.min(G.quarter,CONFIG.quarters); $('hQuarter').textContent='Q'+q;
+  $('hQuarterSub').textContent=`Year ${Math.ceil(q/4)}, quarter ${q} of ${CONFIG.quarters}`;
+  $('hCash').textContent=fmtM(G.cash); $('hCash').className='readout '+(G.cash<0?'red':G.cash<8e6?'amber':'');
+  $('hCashSub').textContent=G.history.length?`${G.cash>=CONFIG.startCash?'+':'−'}${fmtM(Math.abs(G.cash-CONFIG.startCash)).replace('−','')} since launch`:'starting position';
+  if(lastResult){ $('hProfit').textContent=fmtM(lastResult.profit); $('hProfit').className='readout '+(lastResult.profit>=0?'green':'red'); $('hProfitSub').textContent=`Q${lastResult.quarter} · load factor ${pct(lastResult.loadFactor)}`; }
+  else { $('hProfit').textContent='—'; $('hProfit').className='readout'; $('hProfitSub').textContent='no quarter run yet'; }
+  const shock=activeShock(G,G.quarter); const fx=shockFx(shock);
+  $('hFuel').textContent='€'+(G.fuelPrice*fx.fuel).toFixed(2); $('hFuel').className='readout '+(fx.fuel>1?'red':'');
+  $('hFuelSub').textContent=fx.fuel>1?`per unit, shock ×${fx.fuel.toFixed(2)}`:`per unit fuel burn · env €${carbonRate(G.quarter).toFixed(3)}`;
+}
+function renderGauge(score){
+  const off=157*(1-score/100); const arc=$('gArc'); arc.setAttribute('stroke-dashoffset',off.toFixed(1));
+  const col=score>=90?'#4FD3E4':score>=75?'#F2B441':'#F2736C'; arc.setAttribute('stroke',col);
+  $('gNeedle').setAttribute('transform',`rotate(${-90+180*score/100} 60 62)`);
+  $('gVal').textContent=score; $('gVal').style.color=col; $('gLbl').textContent=score>=90?'on model':score>=75?'drifting':'stuck in the middle';
+}
+function renderShock(){
+  const b=$('shockBanner'); const shock=activeShock(G,G.quarter);
+  if(!shock||G.over){ b.classList.add('hidden'); return; } b.classList.remove('hidden');
+  const def=shock.def, m=MODELS[G.model], easing=shock.phase>0; b.className='shock'+(easing?' easing':'');
+  b.innerHTML=`<div class="icon">!</div><div>
+    <h3>${easing?def.name+' — second quarter, effects easing':'Shock: '+def.name}</h3>
+    <p>${easing?'The worst has passed but effects linger: '+def.effect.toLowerCase():def.banner}</p>
+    <div class="fx">${easing?'':'Effect this quarter: '+def.effect}</div>
+    <p><b>Board's advice for ${art(m)}:</b> ${def.coach[m.key]}</p></div>`;
+}
+
+/* ---------- Strategy ---------- */
+function renderStrategy(){
+  const m=MODELS[G.model];
+  $('netP2P').classList.toggle('on',G.network==='p2p'); $('netHub').classList.toggle('on',G.network==='hub');
+  $('netP2P').setAttribute('aria-pressed',G.network==='p2p'); $('netHub').setAttribute('aria-pressed',G.network==='hub');
+  $('netNote').innerHTML=G.network==='hub'
+    ? `Banked connections at Geneva add up to <b>${pct(m.hubFeed-1)}</b> connecting demand for ${art(m)} on the core routes (${CONFIG.coreRoutes.join(', ')}). Costs <b>${fmtM(CONFIG.hubCost)}</b> a quarter plus operating complexity.`
+    : `Aircraft fly out and back with quick turns. No connection revenue, no complexity cost. ${m.network==='p2p'?'The natural fit for your model.':'A network carrier without a hub flies only local demand.'}`;
+  $('allOff').classList.toggle('on',!G.alliance); $('allOn').classList.toggle('on',G.alliance);
+  $('allOff').setAttribute('aria-pressed',!G.alliance); $('allOn').setAttribute('aria-pressed',G.alliance);
+  $('allNote').innerHTML=G.alliance
+    ? `Partners feed premium traffic: up to <b>+${pct(m.allianceFeed.core)}</b> on the core routes, <b>+${pct(m.allianceFeed.other)}</b> elsewhere. Membership <b>${fmtM(CONFIG.allianceCost)}</b> a quarter.`
+    : `No partners, no fee. ${m.alliance?'A network carrier outside an alliance gives connecting traffic to rivals.':'Your customers book direct; fine for a low-cost model.'}`;
+  const fams=activeFamilies(G); const mult=fleetMult(fams.length);
+  $('fleetTypes').textContent=fams.length?`${fams.length} famil${fams.length===1?'y':'ies'} · ${mult<1?'−':'+'}${Math.abs(Math.round((mult-1)*100))}% crew & maint`:'Nothing scheduled';
+  $('fleetTypes').className='readout sm '+(fams.length>m.maxFamilies?'red':fams.length===1?'green':'');
+  $('fleetNote').innerHTML=(fams.length?`In service: <b>${fams.join(', ')}</b>. `:'')+`Your model tolerates <b>${m.maxFamilies}</b> famil${m.maxFamilies===1?'y':'ies'}; each extra one adds its own pilots, spares and maintenance line.`;
+  const coh=assessCoherence(G); renderGauge(coh.score);
+  const ul=$('violList'); ul.innerHTML='';
+  if(!coh.violations.length) ul.appendChild(el('li','ok',`Every live choice fits the ${m.short} model. Keep it that way through the next shock.`));
+  coh.violations.forEach(v=>ul.appendChild(el('li','',`${v.text}<span class="pts">−${v.pts}</span>`)));
+}
+
+/* ---------- Routes (O-D selection + per-cabin fares + config) ---------- */
+function buildRoutes(){
+  const wrap=$('routes'); wrap.innerHTML=''; const m=MODELS[G.model];
+  G.routes.forEach((r,i)=>{
+    const sector=G.base+r.dest; const ap=AIRPORTS[r.dest]; const info=routeInfo(sector);
+    const strip=el('div','route'); strip.id='route'+i;
+    strip.innerHTML=`
+      <div class="rhead">
+        <div class="pairline">
+          <label class="serve"><input type="checkbox" id="active${i}" ${r.active?'checked':''}><span>Serve</span></label>
+          <div class="pair">${CONFIG.base}<span>→</span>${r.dest}</div>
+        </div>
+        <div class="city">${ap?ap.city:r.dest} · ${fmtN(info.dist)} km</div>
+        <div class="rmeta">
+          <span>${T('Market fares','Market fare')}</span><span id="mkt${i}"></span>
+          <span>Competitors</span><span id="comp${i}"></span>
+          <span>Demand mix</span><span id="mix${i}"></span>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="ctl"><label for="ac${i}">Aircraft</label><select id="ac${i}"></select></div>
+        <div class="ctl"><label for="cfg${i}">Cabin configuration</label><select id="cfg${i}"></select></div>
+        <div class="ctl"><label for="freq${i}">Weekly round trips <output id="freqOut${i}"></output></label>
+          <div class="row"><input type="range" id="freqR${i}" min="0" max="42" step="1"><input type="number" id="freq${i}" min="0" max="42" step="1"></div></div>
+        <div class="fares" id="fares${i}"></div>
+        <div class="rwarn" id="rwarn${i}"></div>
+      </div>
+      <div class="rlast" id="rlast${i}"></div>`;
+    wrap.appendChild(strip);
+    // aircraft select
+    const acSel=strip.querySelector('#ac'+i);
+    AC_ORDER.forEach(k=>{ const a=AC[k]; const o=document.createElement('option'); o.value=k; o.textContent=`${a.name} — ${a.range}km, €${(a.lease/1000).toFixed(0)}k/mo${a.range<info.dist?' (out of range)':''}`; acSel.appendChild(o); });
+    acSel.value=r.aircraft;
+    acSel.addEventListener('change',()=>{ r.aircraft=acSel.value; r.configIdx=clamp(r.configIdx,0,configList(r.aircraft).length-1); buildConfigSelect(i); buildFares(i); refreshLive(); });
+    buildConfigSelect(i);
+    // freq
+    const fN=$('freq'+i), fR=$('freqR'+i); fN.value=r.freq; fR.value=r.freq;
+    const applyF=v=>{ v=clamp(Math.round(Number(v)||0),0,42); r.freq=v; fN.value=v; fR.value=v; refreshLive(); };
+    fR.addEventListener('input',()=>applyF(fR.value)); fN.addEventListener('change',()=>applyF(fN.value));
+    // active
+    $('active'+i).addEventListener('change',e=>{ r.active=e.target.checked; strip.classList.toggle('off',!r.active); refreshLive(); });
+    strip.classList.toggle('off',!r.active);
+    buildFares(i);
+  });
+}
+function buildConfigSelect(i){
+  const r=G.routes[i]; const sel=$('cfg'+i); sel.innerHTML='';
+  configList(r.aircraft).forEach((cf,idx)=>{ const s=configSeats(r.aircraft,cf); const o=document.createElement('option'); o.value=idx;
+    o.textContent=`${cf}  (${['F','J','Y'].filter(c=>s[c]).map(c=>s[c]+c).join(' / ')} = ${totalSeats(r.aircraft,cf)} seats)`; sel.appendChild(o); });
+  sel.value=r.configIdx;
+  sel.onchange=()=>{ r.configIdx=Number(sel.value); buildFares(i); refreshLive(); };
+}
+function buildFares(i){
+  const r=G.routes[i]; const box=$('fares'+i); const conf=configName(r.aircraft,r.configIdx); const seats=configSeats(r.aircraft,conf);
+  box.innerHTML='<div class="fareshead">One-way fare by cabin</div>';
+  ['F','J','Y'].forEach(cab=>{ if(!(seats[cab]>0)){ return; }
+    const sector=G.base+r.dest; const mk=Math.round(marketFare(sector,cab));
+    const row=el('div','farerow');
+    row.innerHTML=`<span class="fclab fc-${cab}">${cab==='F'?'First':cab==='J'?'Business':'Economy'} <em>${seats[cab]} seats</em></span>
+      <input type="number" id="fare${cab}${i}" min="0" step="5" value="${r.fares[cab]||0}"><span class="fcmkt">mkt €${mk}</span>`;
+    box.appendChild(row);
+    row.querySelector('input').addEventListener('change',e=>{ r.fares[cab]=clamp(Math.round(Number(e.target.value)||0),0,99999); refreshLive(); });
+  });
+  if(!seats.F && !seats.J && !seats.Y) box.innerHTML+='<div class="muted">No cabins configured.</div>';
+}
+function renderRouteLive(){
+  const m=MODELS[G.model];
+  G.routes.forEach((r,i)=>{
+    const sector=G.base+r.dest; const info=routeInfo(sector); const ac=AC[r.aircraft];
+    const conf=configName(r.aircraft,r.configIdx); const seats=configSeats(r.aircraft,conf);
+    $('mkt'+i).innerHTML=['F','J','Y'].filter(c=>seats[c]).map(c=>`${c} €${Math.round(marketFare(sector,c))}`).join('  ')||'—';
+    $('comp'+i).textContent=[...new Set(COMP.filter(c=>sameRoute(c.route,sector)).map(c=>c.airline))].join(', ')||'none';
+    const dk=demandKey(G.base,r.dest); const d=DEM[dk];
+    if(d){ const tot=['F','J','Y'].reduce((s,c)=>s+annualBaseline(G.base,r.dest,c),0); const prem=annualBaseline(G.base,r.dest,'F')+annualBaseline(G.base,r.dest,'J'); $('mix'+i).textContent=`${pct(prem/tot)} premium, ${pct(1-prem/tot)} economy`; }
+    $('freqOut'+i).textContent=r.freq?`${r.freq}/wk · ${fmtN(totalSeats(r.aircraft,conf)*2*r.freq*CONFIG.weeksPerQuarter)} seats/qtr`:'not flying';
+    const w=$('rwarn'+i); const msgs=[]; let bad=false;
+    if(r.active && r.freq>0 && ac.range<info.dist){ msgs.push(`${ac.name} cannot reach ${r.dest} (${ac.range}km range, ${fmtN(info.dist)}km sector). Earns nothing, still pays lease.`); bad=true; }
+    if(r.active && r.freq>0){ const hasPrem=(seats.F||0)+(seats.J||0)>0;
+      if(m.key==='lcc'&&hasPrem) msgs.push('Premium cabin on a low-cost carrier is off-model.');
+      if(m.key==='fsnc'&&!hasPrem) msgs.push('All-economy layout gives a network carrier no premium cabin to sell.'); }
+    w.textContent=msgs.join(' '); w.className='rwarn'+(bad?' bad':'');
+    const strip=$('route'+i); strip.classList.remove('profit','loss','warn');
+    if(bad) strip.classList.add('warn'); else if(lastResult){ const x=lastResult.routes.find(z=>z.dest===r.dest); if(x&&x.freq>0) strip.classList.add(x.profit>=0?'profit':'loss'); }
+    const last=$('rlast'+i);
+    if(!lastResult) last.innerHTML='<div class="empty">Results appear here after the first quarter.</div>';
+    else { const x=lastResult.routes.find(z=>z.dest===r.dest);
+      if(!x||x.freq===0) last.innerHTML=`<div class="empty">Not served in Q${lastResult.quarter}.</div>`;
+      else if(x.rangeFail) last.innerHTML=`<div class="empty red">Q${lastResult.quarter}: range failure. Lease ${fmtM(x.lease)}, no revenue.</div>`;
+      else { const spill=x.spill.F+x.spill.J+x.spill.Y; last.innerHTML=`
+        <div><div class="k">Q${lastResult.quarter} load factor</div><div class="v ${x.loadFactor<0.6?'amber':''}">${pct(x.loadFactor)}</div></div>
+        <div><div class="k">Route profit</div><div class="v ${x.profit>=0?'green':'red'}">${fmtM(x.profit)}</div></div>
+        <div><div class="k">Passengers</div><div class="v sm">${fmtN(x.pax.F+x.pax.J+x.pax.Y)}</div></div>
+        <div><div class="k">Spill</div><div class="v sm ${spill>500?'amber':''}">${fmtN(spill)}</div></div>`; }
+    }
+  });
+  const fams=activeFamilies(G); const served=G.routes.filter(r=>r.active&&r.freq>0).length;
+  const acEq=G.routes.reduce((s,r)=>{ if(!r.active||!r.freq)return s; const b=blockHours(G.base+r.dest,r.aircraft); return s+(b*r.freq*2)/(AC[r.aircraft].maxUtil*7); },0);
+  $('runSummary').innerHTML=`Q${Math.min(G.quarter,CONFIG.quarters)}: <b>${served}</b> route${served===1?'':'s'} served, <b>${fams.length}</b> fleet famil${fams.length===1?'y':'ies'}, ≈<b>${Math.ceil(acEq)}</b> aircraft, ${G.network==='hub'?'hub-and-spoke':'point-to-point'}, ${G.alliance?'alliance member':'independent'}.`;
+}
+
+/* ---------- Results ---------- */
+function renderResults(res){
+  ['results','logSection','chartSection'].forEach(id=>$(id).classList.remove('hidden'));
+  $('resTitle').textContent=`Quarter ${res.quarter} results`;
+  $('resSub').textContent=(res.shock?`Run under: ${res.shock.def.name}. `:'')+`Fuel €${res.fuelPrice.toFixed(2)}/unit, env €${res.carbon.toFixed(3)}/unit.`;
+  const sum=$('resSummary'); sum.innerHTML='';
+  const card=(l,v,cls,sub)=>{ const p=el('div','panel'+(cls==='amber'?' amber':cls==='cyan'?' cyan':'')); p.innerHTML=`<div class="plabel">${l}</div><div class="readout sm ${cls||''}">${v}</div>${sub?`<div class="sub">${sub}</div>`:''}`; sum.appendChild(p); };
+  card('Net profit',fmtM(res.profit),res.profit>=0?'green':'red',`cash ${fmtM(res.cashAfter)}`);
+  card('Revenue',fmtM(res.revenue),'',`${pct(res.ancillary/Math.max(1,res.revenue))} ${T('ancillary','Ancillary revenue')}`);
+  card('Total costs',fmtM(res.costs),'',`${pct(res.fuel/Math.max(1,res.costs))} fuel`);
+  card(T('Load factor'),pct(res.loadFactor),res.loadFactor<0.65?'amber':'',`${fmtN(res.pax)} pax (${fmtN(res.paxF+res.paxJ)} premium)`);
+  card(T('Spill'),fmtN(res.spill),res.spill>2000?'amber':'','passengers turned away');
+  card(T('Coherence','Strategic coherence'),res.coherence,res.coherence>=90?'cyan':res.coherence>=75?'amber':'red',res.brand<1?`demand −${pct(1-res.brand)}, cost +${pct(res.ineff-1)}`:'no penalty');
+  renderMetrics(res);
+  // ledger
+  const t=$('ledger'); t.innerHTML=''; const R=res.routes;
+  const head=el('tr'); head.innerHTML=`<th>Q${res.quarter}</th>`+R.map(x=>`<th>${x.dest}</th>`).join('')+'<th>Network</th>'; t.appendChild(head);
+  const row=(label,vals,opts={})=>{ const tr=el('tr',opts.cls||''); tr.innerHTML=`<td>${label}</td>`+vals.map(v=>{ if(v==null)return'<td></td>'; if(typeof v==='string')return`<td>${v}</td>`; const cls=opts.signed?(v<0?'neg':'pos'):opts.cost?'cost':''; return`<td class="${cls}">${opts.fmt?opts.fmt(v):fmtM(v)}</td>`; }).join(''); t.appendChild(tr); };
+  const group=l=>{ const tr=el('tr','group'); tr.innerHTML=`<td>${l}</td>`+'<td></td>'.repeat(R.length+1); t.appendChild(tr); };
+  const tot=k=>R.reduce((s,x)=>s+(x[k]||0),0);
+  group('Operation');
+  row('Aircraft',[...R.map(x=>x.freq?x.aircraft.name.replace('Boeing ','').replace('Airbus ','').replace('Embraer ','')+(x.rangeFail?' ✕':''):'—'),`${res.families.length} fam`],{cls:'head'});
+  row('Configuration',[...R.map(x=>x.freq?x.conf:'—'),null]);
+  row('Weekly round trips',[...R.map(x=>x.freq),R.reduce((s,x)=>s+x.freq,0)],{fmt:fmtN});
+  row('Seats offered',[...R.map(x=>x.cap.F+x.cap.J+x.cap.Y),res.cap],{fmt:fmtN});
+  row('Passengers',[...R.map(x=>x.pax.F+x.pax.J+x.pax.Y),res.pax],{fmt:fmtN});
+  row('  of which premium',[...R.map(x=>x.pax.F+x.pax.J),res.paxF+res.paxJ],{fmt:fmtN});
+  row(T('Load factor'),[...R.map(x=>(x.cap.F+x.cap.J+x.cap.Y)?pct(x.loadFactor):'—'),pct(res.loadFactor)]);
+  row(T('Spill'),[...R.map(x=>x.spill.F+x.spill.J+x.spill.Y),res.spill],{fmt:fmtN});
+  row(T('ASK')+' (M)',[...R.map(x=>x.ask/1e6),res.ask/1e6],{fmt:x=>x.toFixed(1)});
+  row(T('CASK'),[...R.map(x=>x.ask?(x.cask*100).toFixed(2)+'c':'—'),(res.cask*100).toFixed(2)+'c']);
+  row(T('RASK'),[...R.map(x=>x.ask?(x.rask*100).toFixed(2)+'c':'—'),(res.rask*100).toFixed(2)+'c']);
+  group('Revenue');
+  row('Ticket revenue',[...R.map(x=>x.ticketRev),res.ticketRev]);
+  row(T('Ancillary revenue'),[...R.map(x=>x.ancillary),res.ancillary],{signed:true});
+  row('Total revenue',[...R.map(x=>x.revenue||0),res.revenue],{cls:'total'});
+  group('Costs');
+  row('Fuel',[...R.map(x=>x.fuel),res.fuel],{cost:true});
+  row('Aircraft lease',[...R.map(x=>x.lease),res.lease],{cost:true});
+  row('Maintenance',[...R.map(x=>x.maint),res.maint],{cost:true});
+  row('Crew',[...R.map(x=>x.crew),res.crew],{cost:true});
+  row('Airport charges',[...R.map(x=>x.airport),res.airport],{cost:true});
+  row(T('ANSP (air nav.)','ANSP charges'),[...R.map(x=>x.ansp),res.ansp],{cost:true});
+  row('Insurance',[...R.map(x=>x.insurance),res.insurance],{cost:true});
+  row(T('Environmental','Environmental charge'),[...R.map(x=>x.env),res.env],{cost:true});
+  row('Route profit',[...R.map(x=>x.profit),tot('profit')],{cls:'total',signed:true});
+  group('Network');
+  row('Overhead',[...R.map(()=>null),-res.overhead],{signed:true});
+  row(T('Hub complexity','Hub complexity cost'),[...R.map(()=>null),-res.hubCost],{signed:true});
+  row('Alliance fee',[...R.map(()=>null),-res.allianceCost],{signed:true});
+  row('Net profit',[...R.map(()=>null),res.profit],{cls:'total',signed:true});
+  row('Cash after quarter',[...R.map(()=>null),res.cashAfter],{cls:'total',signed:true});
+  // log
+  const log=$('log'); log.innerHTML='';
+  res.log.forEach(e=>{ const d=el('div','entry '+e.type); d.innerHTML=`<div class="who">${{good:'Board',warn:'Board',bad:'Board',info:'CFO',shock:'Chair'}[e.type]}</div><h4>${e.title}</h4><p>${e.text}</p>`; log.appendChild(d); });
+  renderChart();
+}
+function unitMetrics(res){ const c=x=>(x*100).toFixed(2)+'c'; const be=res.rask>0? res.loadFactor*res.cask/res.rask : 0;
+  return [ ['ASK',fmtN(res.ask/1e6)+'M','Available seat-km'], ['CASK',c(res.cask),'cost per ASK'], ['RASK',c(res.rask),'revenue per ASK'], ['Yield',c(res.yield_),'ticket revenue per RPK'], ['Break-even load factor',pct(be),'at these fares & costs'] ]; }
+function renderMetrics(res){ const box=$('resMetrics'); box.innerHTML=''; unitMetrics(res).forEach(([k,v,sub])=>{ const p=el('div','panel'); p.innerHTML=`<div class="k">${T(k)}</div><div class="v ${k==='RASK'&&res.rask<res.cask?'red':k==='RASK'?'green':''}">${v}</div><div class="sub">${sub}</div>`; box.appendChild(p); }); }
+function renderChart(){ $('chart').innerHTML=chartSVG(G.history); }
+function chartSVG(H){
+  const W=800,Ht=220,padL=70,padR=60,padT=16,padB=34; const n=CONFIG.quarters+1;
+  const xs=i=>padL+i*(W-padL-padR)/(n-1);
+  const cashVals=[CONFIG.startCash,...H.map(h=>h.cashAfter)]; const lo=Math.min(0,...cashVals)*1.1,hi=Math.max(...cashVals)*1.1||1;
+  const yc=v=>padT+(hi-v)/(hi-lo)*(Ht-padT-padB); const ys=v=>padT+(100-v)/100*(Ht-padT-padB);
+  let s=`<svg viewBox="0 0 ${W} ${Ht}" role="img" aria-label="Cash and coherence by quarter">`;
+  s+=`<line class="axis" x1="${padL}" y1="${yc(0)}" x2="${W-padR}" y2="${yc(0)}"/>`;
+  s+=`<text x="${padL-8}" y="${yc(0)+4}" text-anchor="end">€0</text>`;
+  s+=`<text x="${padL-8}" y="${yc(hi)+10}" text-anchor="end">€${(hi/1e6).toFixed(0)}M</text>`;
+  if(lo<0) s+=`<text x="${padL-8}" y="${yc(lo)}" text-anchor="end">−€${(-lo/1e6).toFixed(0)}M</text>`;
+  [0,50,100].forEach(v=>s+=`<text x="${W-padR+8}" y="${ys(v)+4}">${v}</text>`);
+  for(let i=0;i<n;i++) s+=`<text x="${xs(i)}" y="${Ht-10}" text-anchor="middle">${i===0?'Start':'Q'+i}</text>`;
+  H.forEach((h,i)=>{ if(h.shock) s+=`<rect x="${xs(i+1)-7}" y="${padT}" width="14" height="${Ht-padT-padB}" fill="rgba(242,115,108,.14)"/>`; });
+  if(H.length) s+=`<polyline fill="none" stroke="#4FD3E4" stroke-width="2" stroke-dasharray="4 4" points="${H.map((h,i)=>`${xs(i+1)},${ys(h.coherence)}`).join(' ')}"/>`;
+  s+=`<polyline fill="none" stroke="#F2B441" stroke-width="3" points="${cashVals.map((v,i)=>`${xs(i)},${yc(v)}`).join(' ')}"/>`;
+  cashVals.forEach((v,i)=>s+=`<circle cx="${xs(i)}" cy="${yc(v)}" r="4" fill="#F2B441"/>`);
+  s+='</svg>'; return s;
+}
+
+/* ---------- Run ---------- */
+function onRun(){ if(!G||G.over) return; const res=simulateQuarter(G); lastResult=res; renderResults(res); refreshAll();
+  if(G.over){ $('runBtn').textContent=G.overReason==='bankrupt'?'The lenders have called. Open board review':'Two years complete. Open board review'; $('runBtn').onclick=showEnd; }
+  $('results').scrollIntoView({behavior:'smooth',block:'start'}); }
+function refreshLive(){ renderStrategy(); renderRouteLive(); }
+function refreshAll(){ renderHeader(); renderShock(); refreshLive(); }
+
+/* ---------- End + download ---------- */
+function showEnd(){
+  const rv=boardReview(G); G.review=rv;
+  $('game').classList.add('hidden'); $('end').classList.remove('hidden');
+  $('endEyebrow').textContent=`${G.name} · ${MODELS[G.model].name} · ${G.history.length} quarters`;
+  const box=$('review'); box.innerHTML='';
+  const g=el('div','grade panel amber'); g.innerHTML=`<div class="g">${rv.grade}</div><div><h2>${rv.title}</h2><p class="muted" style="margin:8px 0 0;font-size:1.05rem">Board score ${Math.round(rv.score)}/100: 60% financial return on the ${fmtM(CONFIG.startCash)} you started with, 40% strategic coherence.${G.overReason==='bankrupt'?' Insolvency caps the grade.':''}</p></div>`; box.appendChild(g);
+  const k=el('div','kpis'); const kp=(l,v,cls)=>{ const p=el('div','panel'); p.innerHTML=`<div class="plabel">${l}</div><div class="readout sm ${cls||''}">${v}</div>`; k.appendChild(p); };
+  kp('Final cash',fmtM(G.cash),G.cash>=CONFIG.startCash?'green':'red');
+  kp('Cumulative profit',fmtM(rv.totalProfit),rv.totalProfit>=0?'green':'red');
+  kp('Avg coherence',Math.round(rv.avgCoh),rv.avgCoh>=85?'cyan':rv.avgCoh>=70?'amber':'red');
+  kp('Avg load factor',pct(rv.avgLF)); kp('Passengers',fmtN(rv.paxTot)); box.appendChild(k);
+  rv.sections.forEach(s=>{ const d=el('div','entry '+s.type); d.innerHTML=`<h4>${s.title}</h4><p>${s.text}</p>`; box.appendChild(d); });
+  window.scrollTo({top:0});
+}
+function saveBlob(text,mime,name){ const blob=new Blob([text],{type:mime}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
+function fileStem(){ return `AirStrategist_${G.name.replace(/[^a-z0-9]+/gi,'_')}_${G.seed}`; }
+function downloadResults(){
+  const rows=[]; const esc=v=>{ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const rv=G.review||boardReview(G);
+  rows.push(['AirStrategist: result export']); rows.push(['Cite as','Efthymiou, M. (2026). AirStrategist: an airline business model simulator. Zenodo. https://doi.org/10.5281/zenodo.22309151']); rows.push([CONFIG.credit]); rows.push(['Exported',new Date().toISOString()]);
+  rows.push(['Carrier',G.name]); rows.push(['Model',MODELS[G.model].name]);
+  rows.push(['Base',`${CONFIG.baseName} (${CONFIG.base})`]); rows.push(['Seed',G.seed]); rows.push(['Quarters played',G.history.length,'of',CONFIG.quarters]);
+  rows.push(['Shock schedule',G.shocks.map(x=>`${SHOCKS[x.key].name} from Q${x.start}`).join('; ')]);
+  rows.push(['Grade',rv.grade]); rows.push(['Board score',Math.round(rv.score)]); rows.push(['Cumulative profit (€)',Math.round(rv.totalProfit)]); rows.push(['Average coherence',Math.round(rv.avgCoh)]);
+  rows.push(['Final cash (€)',Math.round(G.cash)]); rows.push(['Outcome',G.overReason||'in progress']); rows.push([]);
+  rows.push(['Quarter','Shock','Coherence','Network','Alliance','Revenue','Ticket','Ancillary','Fuel','Lease','Maint','Crew','Airport','ANSP','Insurance','Environmental','Overhead','HubCost','AllianceFee','TotalCost','Profit','Cash','LoadFactor','Pax','PremiumPax','Spill','ASK','RPK','CASK','RASK','Yield','FuelPrice','EnvCharge','Aircraft','Families']);
+  G.history.forEach(h=>rows.push([h.quarter, h.shock?h.shock.def.name:'', h.coherence, h.network, h.alliance?'Yes':'No', Math.round(h.revenue), Math.round(h.ticketRev), Math.round(h.ancillary), Math.round(h.fuel), Math.round(h.lease), Math.round(h.maint), Math.round(h.crew), Math.round(h.airport), Math.round(h.ansp), Math.round(h.insurance), Math.round(h.env), Math.round(h.overhead), Math.round(h.hubCost), Math.round(h.allianceCost), Math.round(h.costs), Math.round(h.profit), Math.round(h.cashAfter), (h.loadFactor).toFixed(3), Math.round(h.pax), Math.round(h.paxF+h.paxJ), Math.round(h.spill), Math.round(h.ask), Math.round(h.rpk), h.cask.toFixed(4), h.rask.toFixed(4), h.yield_.toFixed(4), h.fuelPrice.toFixed(3), h.carbon.toFixed(3), h.aircraftCount, h.families.join('|')]));
+  rows.push([]); rows.push(['Per-route detail']);
+  rows.push(['Quarter','Route','Served','Aircraft','Config','Freq','Seats','PaxF','PaxJ','PaxY','Pax','LoadFactor','Spill','FareF','FareJ','FareY','MarketF','MarketJ','MarketY','TicketRev','Ancillary','Revenue','Fuel','Lease','Maint','Crew','Airport','ANSP','Insurance','Env','Cost','Profit','CASK','RASK','RangeFail']);
+  G.history.forEach(h=>h.routes.forEach(x=>{ rows.push([h.quarter,CONFIG.base+'-'+x.dest,x.freq>0?'Yes':'No',x.aircraft.name,x.conf,x.freq,x.cap.F+x.cap.J+x.cap.Y,Math.round(x.pax.F),Math.round(x.pax.J),Math.round(x.pax.Y),Math.round(x.pax.F+x.pax.J+x.pax.Y),(x.loadFactor).toFixed(3),Math.round(x.spill.F+x.spill.J+x.spill.Y),x.fares.F||'',x.fares.J||'',x.fares.Y||'',Math.round(marketFare(x.sector,'F')),Math.round(marketFare(x.sector,'J')),Math.round(marketFare(x.sector,'Y')),Math.round(x.ticketRev),Math.round(x.ancillary),Math.round(x.revenue),Math.round(x.fuel),Math.round(x.lease),Math.round(x.maint),Math.round(x.crew),Math.round(x.airport),Math.round(x.ansp),Math.round(x.insurance||0),Math.round(x.env),Math.round(x.costs),Math.round(x.profit),(x.cask||0).toFixed(4),(x.rask||0).toFixed(4),x.rangeFail?'Yes':'No']); }));
+  rows.push([]); rows.push(['Coherence findings by quarter']); rows.push(['Quarter','Points','Finding']);
+  G.history.forEach(h=>h.violations.forEach(v=>rows.push([h.quarter,v.pts,v.text])));
+  rows.push([]); rows.push(['Boardroom log']); rows.push(['Quarter','Speaker','Type','Title','Comment']);
+  G.history.forEach(h=>h.log.forEach(e=>rows.push([h.quarter,{good:'Board',warn:'Board',bad:'Board',info:'CFO',shock:'Chair'}[e.type],e.type,e.title,e.text])));
+  if(G.review){ rows.push([]); rows.push(['Board review']); rows.push(['Grade',rv.grade,rv.title]); rv.sections.forEach(x=>rows.push(['',x.title,x.text])); }
+  const csv='\ufeff'+rows.map(r=>r.map(esc).join(',')).join('\n');
+  saveBlob(csv,'text/csv;charset=utf-8',fileStem()+'.csv');
+}
+
+/* ---------- Full HTML report (the simulator as it appeared) ---------- */
+function buildReport(){
+  const m=MODELS[G.model]; const rv=G.review||(G.over?boardReview(G):null); const H=G.history;
+  const e=x=>String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const who={good:'Board',warn:'Board',bad:'Board',info:'CFO',shock:'Chair'};
+  const money=x=>fmtM(x);
+  const routeTable=(h)=>{ const R=h.routes; const c=(v,cls)=>`<td class="${cls||''}">${v}</td>`;
+    const row=(l,f,cls)=>`<tr><th>${l}</th>${R.map(x=>c(f(x),cls)).join('')}</tr>`;
+    return `<table class="led"><tr><th>Q${h.quarter}</th>${R.map(x=>`<th>${CONFIG.base}–${x.dest}</th>`).join('')}</tr>
+      ${row('Served',x=>x.freq>0?'Yes':'No')}${row('Aircraft',x=>x.freq?e(x.aircraft.name)+(x.rangeFail?' — RANGE FAIL':''):'—')}${row('Configuration',x=>x.freq?e(x.conf):'—')}
+      ${row('Weekly round trips',x=>x.freq)}${row('Fares F / J / Y',x=>['F','J','Y'].filter(k=>x.seats[k]).map(k=>k+' €'+x.fares[k]).join(' · ')||'—')}
+      ${row('Seats offered',x=>fmtN(x.cap.F+x.cap.J+x.cap.Y))}${row('Passengers (premium)',x=>`${fmtN(x.pax.F+x.pax.J+x.pax.Y)} (${fmtN(x.pax.F+x.pax.J)})`)}
+      ${row('Load factor',x=>(x.cap.F+x.cap.J+x.cap.Y)?pct(x.loadFactor):'—')}${row('Spill',x=>fmtN(x.spill.F+x.spill.J+x.spill.Y))}
+      ${row('Revenue',x=>money(x.revenue))}${row('  of which ancillary',x=>money(x.ancillary))}
+      ${row('Fuel',x=>money(x.fuel))}${row('Lease',x=>money(x.lease))}${row('Maintenance',x=>money(x.maint))}${row('Crew',x=>money(x.crew))}${row('Airport',x=>money(x.airport))}${row('ANSP',x=>money(x.ansp))}${row('Insurance',x=>money(x.insurance||0))}${row('Environmental',x=>money(x.env))}
+      ${row('Route profit',x=>money(x.profit),'tot')}${row('CASK / RASK',x=>x.ask?`${(x.cask*100).toFixed(2)}c / ${(x.rask*100).toFixed(2)}c`:'—')}
+    </table>`; };
+  const netTable=(h)=>`<table class="led kv"><tr><th>Total revenue</th><td>${money(h.revenue)}</td><th>Route costs</th><td>${money(h.costs-h.overhead-h.hubCost-h.allianceCost)}</td></tr>
+    <tr><th>Overhead</th><td>${money(h.overhead)}</td><th>Hub complexity</th><td>${money(h.hubCost)}</td></tr>
+    <tr><th>Alliance fee</th><td>${money(h.allianceCost)}</td><th>Total costs</th><td>${money(h.costs)}</td></tr>
+    <tr class="tot"><th>Net profit</th><td>${money(h.profit)}</td><th>Cash after quarter</th><td>${money(h.cashAfter)}</td></tr>
+    <tr><th>Load factor</th><td>${pct(h.loadFactor)}</td><th>Passengers (premium)</th><td>${fmtN(h.pax)} (${fmtN(h.paxF+h.paxJ)})</td></tr>
+    <tr><th>ASK / RPK</th><td>${fmtN(h.ask/1e6)}M / ${fmtN(h.rpk/1e6)}M</td><th>CASK / RASK / yield</th><td>${(h.cask*100).toFixed(2)}c / ${(h.rask*100).toFixed(2)}c / ${(h.yield_*100).toFixed(2)}c</td></tr>
+    <tr><th>Fuel price / env charge</th><td>€${h.fuelPrice.toFixed(2)} / €${h.carbon.toFixed(3)}</td><th>Aircraft / families</th><td>${h.aircraftCount} / ${h.families.join(', ')||'—'}</td></tr>
+    <tr><th>Network / alliance</th><td>${h.network==='hub'?'Hub-and-spoke':'Point-to-point'} / ${h.alliance?'Member':'Independent'}</td><th>Coherence</th><td>${h.coherence}/100${h.brand<1?` (demand −${pct(1-h.brand)}, cost +${pct(h.ineff-1)})`:''}</td></tr></table>`;
+  const quarters=H.map(h=>{ const sh=h.shock; return `<section class="q"><h2>Quarter ${h.quarter} <span class="sub">Year ${Math.ceil(h.quarter/4)}${sh?' · '+e(sh.def.name)+(sh.phase>0?' (second quarter)':''):''}</span></h2>
+    ${sh?`<div class="shock"><b>${sh.phase>0?e(sh.def.name)+' — effects easing':'Shock: '+e(sh.def.name)}</b><p>${e(sh.phase>0?sh.def.effect:sh.def.banner)}</p>${sh.phase>0?'':`<p><i>Effect this quarter:</i> ${e(sh.def.effect)}</p>`}<p><i>Board's advice for ${art(m)}:</i> ${e(sh.def.coach[m.key])}</p></div>`:''}
+    <h3>Decisions</h3>${routeTable(h)}
+    <h3>Network result</h3>${netTable(h)}
+    ${h.violations.length?`<h3>Coherence check — what the board saw</h3><ul class="viol">${h.violations.map(v=>`<li>${e(v.text)} <span class="pts">−${v.pts}</span></li>`).join('')}</ul>`:'<p class="ok">Every live choice fitted the model this quarter.</p>'}
+    <h3>Boardroom log</h3><div class="log">${h.log.map(x=>`<div class="entry ${x.type}"><div class="who">${who[x.type]}</div><h4>${e(x.title)}</h4><p>${e(x.text)}</p></div>`).join('')}</div>
+  </section>`; }).join('');
+  const review = rv? `<section class="q review"><h2>Board review</h2>
+    <div class="grade"><div class="g">${rv.grade}</div><div><h3>${e(rv.title)}</h3><p>Board score ${Math.round(rv.score)}/100: 60% financial return on the ${money(CONFIG.startCash)} you started with, 40% strategic coherence.${G.overReason==='bankrupt'?' Insolvency caps the grade.':''}</p></div></div>
+    <table class="led kv"><tr><th>Final cash</th><td>${money(G.cash)}</td><th>Cumulative profit</th><td>${money(rv.totalProfit)}</td></tr><tr><th>Average coherence</th><td>${Math.round(rv.avgCoh)}/100</td><th>Average load factor</th><td>${pct(rv.avgLF)}</td></tr><tr><th>Passengers</th><td>${fmtN(rv.paxTot)}</td><th>of which premium</th><td>${fmtN(rv.premTot)}</td></tr></table>
+    <div class="log">${rv.sections.map(x=>`<div class="entry ${x.type}"><h4>${e(x.title)}</h4><p>${e(x.text)}</p></div>`).join('')}</div></section>` : `<section class="q"><h2>Board review</h2><p>Not yet held — the run is in progress (${H.length} of ${CONFIG.quarters} quarters played).</p></section>`;
+  const glossary=`<section class="q"><h2>Glossary</h2><dl class="gl">${GLOSSARY.map(([t,d])=>`<div><dt>${e(t)}</dt><dd>${e(d)}</dd></div>`).join('')}</dl></section>`;
+  const brief=`<section class="q"><h2>The two business models — briefing shown before the choice</h2>${MODEL_BRIEF.intro.paras.map(p=>`<p>${p}</p>`).join('')}<table class="led cmp"><tr><th>Dimension</th><th>LCC</th><th>FSNC</th></tr>${MODEL_BRIEF.dimensions.map(d=>`<tr><th>${e(d.dim)}</th><td>${e(d.lcc)}</td><td>${e(d.fsnc)}</td></tr>`).join('')}</table><h3>${MODEL_BRIEF.hybrid.title}</h3><p>${MODEL_BRIEF.hybrid.text}</p><h3>${MODEL_BRIEF.coherence.title}</h3><p>${MODEL_BRIEF.coherence.text}</p></section>`;
+  const css=`body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#111;background:#fff;margin:0;padding:32px;line-height:1.5;font-size:13px;position:relative}
+  /* Diagonal watermark, faint on screen and paper, showing author + licence */
+  body::before{content:"AirStrategist \u00b7 \u00a9 2026 Marina Efthymiou \u00b7 CC BY-NC 4.0";position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-32deg);font-size:64px;font-weight:700;color:#000;opacity:0.05;letter-spacing:6px;white-space:nowrap;pointer-events:none;z-index:-1}
+  h1{font-size:26px;margin:0 0 4px}h2{font-size:19px;margin:34px 0 8px;padding-top:12px;border-top:2px solid #111}h2 .sub{font-weight:400;color:#555;font-size:14px}h3{font-size:14px;margin:18px 0 6px;color:#333;text-transform:uppercase;letter-spacing:.05em}h4{margin:0 0 2px;font-size:13px}.meta{color:#444;margin:0 0 14px}.meta b{color:#111}table.led{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0}table.led th,table.led td{border:1px solid #ccc;padding:4px 7px;text-align:left;vertical-align:top}table.led tr>th:first-child{background:#f3f3f3;width:22%;font-weight:600}table.led tr:first-child th{background:#e8e8e8}table.led tr.tot th,table.led tr.tot td,table.led td.tot{font-weight:700;background:#fafafa}table.led.kv th{width:20%}table.cmp th:first-child{width:14%}.shock{border:1px solid #c33;background:#fff5f5;padding:10px 14px;margin:8px 0}.shock p{margin:4px 0}.log{display:grid;gap:8px}.entry{border-left:3px solid #999;padding:6px 12px;background:#fafafa}.entry.good{border-color:#2a9d5c}.entry.bad{border-color:#c33}.entry.warn{border-color:#d98a00}.entry.shock{border-color:#c33;background:#fff5f5}.entry .who{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#666}.entry p{margin:2px 0 0}ul.viol{margin:6px 0;padding-left:18px}.pts{color:#777;font-family:monospace}.ok{color:#2a9d5c}.grade{display:flex;gap:18px;align-items:center;border:2px solid #111;padding:14px 18px;margin:8px 0}.grade .g{font-size:58px;font-weight:800;line-height:1}.grade h3{text-transform:none;letter-spacing:0;font-size:17px;margin:0}dl.gl{columns:2;column-gap:28px;margin:0}dl.gl div{break-inside:avoid;padding:5px 0;border-top:1px solid #ddd}dl.gl dt{font-weight:600}dl.gl dd{margin:2px 0 0;color:#333}.chart svg{width:100%;max-width:820px;height:auto;background:#fff;border:1px solid #ddd}.chart text{font-size:11px;fill:#333;font-family:monospace}.chart .axis{stroke:#999}.credit{margin-top:36px;padding-top:12px;border-top:1px solid #999;color:#555;font-size:12px}.toc{columns:2;font-size:12px}@media print{body{padding:12mm}section.q{page-break-before:always}section.q:first-of-type{page-break-before:auto}h2{page-break-after:avoid}table,.entry,.shock{page-break-inside:avoid}}@page{margin:14mm}`;
+  const decisionsNow = !G.over ? `<section class="q"><h2>Current decisions (not yet run)</h2><table class="led"><tr><th>Route</th><th>Served</th><th>Aircraft</th><th>Configuration</th><th>Weekly round trips</th><th>Fares F / J / Y</th></tr>${G.routes.map(r=>`<tr><th>${CONFIG.base}–${r.dest}</th><td>${r.active?'Yes':'No'}</td><td>${e(AC[r.aircraft].name)}</td><td>${e(configName(r.aircraft,r.configIdx))}</td><td>${r.freq}</td><td>${['F','J','Y'].map(k=>k+' €'+(r.fares[k]||0)).join(' · ')}</td></tr>`).join('')}</table><p>Network: ${G.network==='hub'?'Hub-and-spoke':'Point-to-point'} · Alliance: ${G.alliance?'Member':'Independent'}</p></section>` : '';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>AirStrategist run report — ${e(G.name)} (${G.seed})</title><style>${css}</style></head><body>
+    <h1>AirStrategist: full run report</h1>
+    <p class="meta"><b>${e(G.name)}</b> · ${e(m.name)} (${m.short}) · base ${CONFIG.baseName} (${CONFIG.base}) · seed <b>${e(G.seed)}</b> · ${H.length} of ${CONFIG.quarters} quarters · exported ${new Date().toLocaleString()}<br>Outcome: ${G.overReason==='bankrupt'?'Insolvent — lenders called':G.overReason==='complete'?'Two years complete':'In progress'}${rv?` · Grade <b>${rv.grade}</b> (board score ${Math.round(rv.score)}/100)`:''}<br>Shocks in this scenario: ${G.shocks.map(x=>`${e(SHOCKS[x.key].name)} from Q${x.start}`).join('; ')}</p>
+    <div class="chart">${chartSVG(H)}</div><p class="meta">Amber line: cash by quarter. Dashed line: coherence when each quarter was run. Shaded columns: shock quarters.</p>
+    <h2>Summary by quarter</h2><table class="led"><tr><th>Quarter</th><th>Shock</th><th>Coherence</th><th>Revenue</th><th>Costs</th><th>Profit</th><th>Cash</th><th>Load factor</th><th>Pax</th><th>CASK</th><th>RASK</th></tr>${H.map(h=>`<tr><th>Q${h.quarter}</th><td>${h.shock?e(h.shock.def.name):''}</td><td>${h.coherence}</td><td>${money(h.revenue)}</td><td>${money(h.costs)}</td><td>${money(h.profit)}</td><td>${money(h.cashAfter)}</td><td>${pct(h.loadFactor)}</td><td>${fmtN(h.pax)}</td><td>${(h.cask*100).toFixed(2)}c</td><td>${(h.rask*100).toFixed(2)}c</td></tr>`).join('')}</table>
+    ${review}${decisionsNow}${quarters}${brief}${glossary}
+    <div class="credit">${e(CONFIG.credit)}. Demand, competitor fares, aircraft and airport costs are drawn from the MNA1010 Business Case University Challenge dataset; modelled items are documented in the simulator source.</div>
+  </body></html>`;
+}
+function downloadReport(){ saveBlob(buildReport(),'text/html;charset=utf-8',fileStem()+'_report.html'); }
+
+/* ---------- Wire ---------- */
+$('netP2P').onclick=()=>{G.network='p2p';refreshLive();}; $('netHub').onclick=()=>{G.network='hub';refreshLive();};
+$('allOff').onclick=()=>{G.alliance=false;refreshLive();}; $('allOn').onclick=()=>{G.alliance=true;refreshLive();};
+$('againBtn').onclick=()=>{ $('end').classList.add('hidden'); $('start').classList.remove('hidden'); selectedModel=null; [...$('modelCards').children].forEach(x=>x.classList.remove('selected')); validateLaunch(); window.scrollTo({top:0}); };
+$('backBtn').onclick=()=>{ $('end').classList.add('hidden'); $('game').classList.remove('hidden'); window.scrollTo({top:0}); };
+$('downloadBtn').onclick=downloadResults; $('downloadBtn2').onclick=downloadResults; $('reportBtn').onclick=downloadReport; $('reportBtn2').onclick=downloadReport;
+renderStart();
+</script>
+</body>
+</html>
